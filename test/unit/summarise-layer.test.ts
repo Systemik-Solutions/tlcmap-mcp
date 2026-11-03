@@ -76,13 +76,13 @@ describe('summariseLayerFeed', () => {
     expect(s.record_count).toBe(1);
   });
 
-  test('ungeolocated counts any record with no positions, wherever it falls in the feed', () => {
+  test('ungeolocated counts only null or absent geometry; an empty present geometry is not counted', () => {
     const s = inline([
       { geometry: { type: 'Point', coordinates: [1, 2] }, properties: { id: 'a' } },
       { geometry: { type: 'MultiPoint', coordinates: [] }, properties: { id: 'b' } },
       { geometry: null, properties: { id: 'c' } },
     ]);
-    expect(s.ungeolocated_count).toBe(2);
+    expect(s.ungeolocated_count).toBe(1);
     expect(s.extent).toEqual([1, 2, 1, 2]);
   });
 

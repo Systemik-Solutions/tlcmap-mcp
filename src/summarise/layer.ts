@@ -28,7 +28,7 @@ function violation(expected: string, extra: Obj = {}): TlcmapError {
 }
 
 /** Mutable running bounds, updated as positions are read. */
-type Acc = { b: Bounds; n: number };
+type Acc = { b: Bounds };
 type Bounds = { minLon: number; minLat: number; maxLon: number; maxLat: number } | null;
 
 function addPosition(pos: unknown, idx: number, acc: Acc): void {
@@ -42,7 +42,6 @@ function addPosition(pos: unknown, idx: number, acc: Acc): void {
   ) {
     throw violation('a position of at least two finite numbers [lon, lat]', { feature_index: idx });
   }
-  acc.n++;
   const lon = pos[0];
   const lat = pos[1];
   const b = acc.b;
@@ -123,7 +122,7 @@ export function summariseLayerFeed(body: Uint8Array): LayerSummary {
     throw violation('features to be an array', { api_metadata: metadata });
   }
 
-  const acc: Acc = { b: null, n: 0 };
+  const acc: Acc = { b: null };
   let start: DateBound | null = null;
   let end: DateBound | null = null;
   let undated = 0;
@@ -154,9 +153,7 @@ export function summariseLayerFeed(body: Uint8Array): LayerSummary {
       ungeolocated++;
       return;
     }
-    const positionsBefore = acc.n;
     addGeometry(g, idx, acc);
-    if (acc.n === positionsBefore) ungeolocated++;
   });
 
   const b = acc.b;
