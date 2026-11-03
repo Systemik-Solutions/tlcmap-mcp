@@ -22,24 +22,13 @@ command -v node     # must print /usr/bin/node
 
 The unit file runs `/usr/bin/node`; if the path differs, stop and fix it before continuing.
 
-### 3. Service user, directories and environment file
+### 3. Deploy key and repository checkout
+
+Root clones the repository, so root needs read access to it first. Every later step uses the
+checkout at `/root/tlcmap-mcp-deploy`.
 
 ```bash
-sudo useradd --system --home /opt/tlcmap-mcp --shell /usr/sbin/nologin tlcmap-mcp
-sudo mkdir -p /opt/tlcmap-mcp/releases /etc/tlcmap-mcp
-sudo chown -R tlcmap-mcp:tlcmap-mcp /opt/tlcmap-mcp
-sudo install -o root -g tlcmap-mcp -m 0640 deploy/env.example /etc/tlcmap-mcp/env
-```
-
-Run the last command from a checkout of the repository, or copy `env.example` to the host first.
-Edit `/etc/tlcmap-mcp/env` if any value differs from staging. `PUBLIC_URL` must match the vhost
-`ServerName` (see "Host and Origin checks" below).
-
-### 4. Deploy key
-
-Root clones the repository, so root needs read access to it.
-
-```bash
+sudo install -d -m 700 /root/.ssh
 sudo ssh-keygen -t ed25519 -f /root/.ssh/tlcmap-mcp-deploy -N '' -C 'tlcmap-mcp deploy'
 sudo cat /root/.ssh/tlcmap-mcp-deploy.pub
 ```
@@ -55,10 +44,23 @@ Host github.com
 CONF
 sudo chmod 600 /root/.ssh/config
 sudo ssh -T git@github.com    # accept the host key; "successfully authenticated" is expected
+sudo git clone git@github.com:Systemik-Solutions/tlcmap-mcp.git /root/tlcmap-mcp-deploy
 ```
 
 If root already uses another key for `github.com`, give this one its own host alias instead and
-adjust `REPO` in `deploy.sh`.
+adjust `REPO` in `deploy.sh`. To refresh the checkout later: `sudo git -C /root/tlcmap-mcp-deploy pull`.
+
+### 4. Service user, directories and environment file
+
+```bash
+sudo useradd --system --home /opt/tlcmap-mcp --shell /usr/sbin/nologin tlcmap-mcp
+sudo mkdir -p /opt/tlcmap-mcp/releases /etc/tlcmap-mcp
+sudo chown -R tlcmap-mcp:tlcmap-mcp /opt/tlcmap-mcp
+sudo install -o root -g tlcmap-mcp -m 0640 /root/tlcmap-mcp-deploy/deploy/env.example /etc/tlcmap-mcp/env
+```
+
+Edit `/etc/tlcmap-mcp/env` if any value differs from staging. `PUBLIC_URL` must match the vhost
+`ServerName` (see "Host and Origin checks" below).
 
 ### 5. Confirm port 3100 is free
 
@@ -72,7 +74,7 @@ and change the port in the vhost.
 ### 6. Install the unit
 
 ```bash
-sudo cp deploy/tlcmap-mcp.service /etc/systemd/system/
+sudo cp /root/tlcmap-mcp-deploy/deploy/tlcmap-mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable tlcmap-mcp
 ```
@@ -81,19 +83,33 @@ Do not start it yet; there is no release until the first deploy.
 
 ### 7. Apache and certificate
 
+This host also serves the staging TLCMap app, so a mistake here can take that site down. Follow the
+order exactly.
+
 ```bash
-sudo a2enmod proxy proxy_http headers ssl
-sudo cp deploy/test-mcp.tlcmap.org.conf /etc/apache2/sites-available/
-sudo a2ensite test-mcp.tlcmap.org
-sudo apachectl configtest
-sudo systemctl reload apache2
-sudo certbot --apache -d test-mcp.tlcmap.org
+sudo apt install -y certbot python3-certbot-apache   # or confirm they are already installed for the other site
+sudo apachectl -S
 ```
 
-`configtest` must print `Syntax OK`. The 443 vhost in the file has no certificate lines; certbot
-adds them. If `apachectl configtest` complains about a missing certificate before certbot has run,
-comment out the `*:443` vhost, reload, run certbot, then restore it and re-run certbot's
-installer (`sudo certbot install --apache -d test-mcp.tlcmap.org`).
+Confirm in the `apachectl -S` output that the existing sites use name-based vhosts on `*:80` and
+`*:443`. If they use specific addresses, adapt the new vhosts to match before going on.
+
+```bash
+sudo a2enmod proxy proxy_http headers ssl
+sudo cp /root/tlcmap-mcp-deploy/deploy/test-mcp.tlcmap.org.conf /etc/apache2/sites-available/
+sudo a2ensite test-mcp.tlcmap.org
+sudo apachectl configtest      # must print Syntax OK
+sudo systemctl reload apache2  # only the *:80 vhost is active now
+sudo certbot certonly --apache -d test-mcp.tlcmap.org
+sudo apachectl configtest
+sudo systemctl reload apache2  # the *:443 vhost is now read
+curl -sI https://test-mcp.tlcmap.org/healthz
+```
+
+The `*:443` vhost is wrapped in `<IfFile>` on the certificate path, so it is ignored until
+`certbot certonly` has created the certificate. Do not use `certbot --apache` (without `certonly`):
+the vhost already carries its own certificate lines. Until the first deploy completes the `curl`
+returns 502 from Apache, which proves TLS and the proxy are in place.
 
 The vhost proxies with `flushpackets=on` and disables compression for `/mcp`. Some 2025-era MCP
 clients receive single-event SSE replies even though the server is in JSON mode, and buffering or
@@ -101,10 +117,8 @@ gzip would hold those replies back.
 
 ### 8. First deploy
 
-From a checkout of the repository on the host (or copy `deploy.sh` there):
-
 ```bash
-sudo ./deploy/deploy.sh main
+sudo /root/tlcmap-mcp-deploy/deploy/deploy.sh main
 ```
 
 Expect progress lines ending with `Deployed <sha>`. Then check
@@ -115,20 +129,21 @@ Expect progress lines ending with `Deployed <sha>`. Then check
 ### Deploy
 
 ```bash
-sudo ./deploy/deploy.sh <git-ref>     # a branch, tag or commit
+sudo /root/tlcmap-mcp-deploy/deploy/deploy.sh <git-ref>     # a branch, tag or commit
 ```
 
 The script clones the ref into `/opt/tlcmap-mcp/releases/<sha>`, runs `npm ci`, `npm run build`
 and `npm prune --omit=dev` as `tlcmap-mcp`, switches `current`, restarts the service and waits up
-to 30 seconds for `/healthz` to report the release's `package.json` version. If that does not
-happen it restores the previous release, restarts and exits 1. On success it keeps the three
-newest releases (and always the one `current` points to) and deletes the rest. It reads `PORT`
-from `/etc/tlcmap-mcp/env` and defaults to 3100.
+to 30 seconds for `/healthz` to report the release's `package.json` version. If the build or the
+health check fails it deletes the failed release, restores the previous release and restarts (on a
+first deploy it removes `current` and stops the service instead), and exits 1. On success it keeps
+the three newest releases (and always the one `current` points to) and deletes the rest. It reads
+`PORT` from `/etc/tlcmap-mcp/env` and defaults to 3100.
 
 ### Roll back
 
 ```bash
-sudo ./deploy/deploy.sh --rollback
+sudo /root/tlcmap-mcp-deploy/deploy/deploy.sh --rollback
 ```
 
 Re-points `current` to the newest release directory other than the current one and restarts. Run

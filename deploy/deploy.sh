@@ -26,9 +26,20 @@ if [ -r "${ENV_FILE}" ]; then
   if [ -n "${file_port}" ]; then PORT="${file_port}"; fi
 fi
 
-current_target() { readlink -f "${CURRENT}" 2>/dev/null || true; }
+# Resolved target of `current`; empty if it is missing, not a symlink or broken.
+current_target() {
+  if [ -L "${CURRENT}" ]; then readlink -e "${CURRENT}" || true; fi
+}
 
-release_version() { node -p "require('$1/package.json').version"; }
+# Release directories (never staging clones, which start with a dot), newest first.
+list_releases() {
+  find "${RELEASES}" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%T@ %p\n' | sort -rn | cut -d' ' -f2-
+}
+
+# Print the version in a package.json. Parsed as data (never required or executed).
+read_version() {
+  node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).version)" "$1"
+}
 
 # Poll /healthz for up to WAIT_SECONDS until it reports the expected version.
 wait_healthy() {
@@ -53,7 +64,7 @@ prune() {
     if [ "$(readlink -f "${dir}")" = "${keep_target}" ]; then continue; fi
     log "Pruning ${dir}"
     rm -rf -- "${dir}"
-  done < <(find "${RELEASES}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -rn | cut -d' ' -f2-)
+  done < <(list_releases)
 }
 
 if [ "$1" = "--rollback" ]; then
@@ -62,16 +73,19 @@ if [ "$1" = "--rollback" ]; then
   previous=""
   while IFS= read -r dir; do
     if [ "$(readlink -f "${dir}")" != "${now}" ]; then previous="${dir}"; break; fi
-  done < <(find "${RELEASES}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -rn | cut -d' ' -f2-)
+  done < <(list_releases)
   [ -n "${previous}" ] || die "no previous release to roll back to"
   log "Rolling back ${now} -> ${previous}"
   ln -sfn "${previous}" "${CURRENT}"
   systemctl restart "${SERVICE}"
-  if wait_healthy "$(release_version "${previous}")"; then
+  if wait_healthy "$(read_version "${previous}/package.json")"; then
     log "Rollback healthy"
     exit 0
   fi
-  die "rolled-back release did not become healthy; check: journalctl -u ${SERVICE}"
+  printf 'ERROR: rolled-back release did not become healthy; restoring %s\n' "${now}" >&2
+  ln -sfn "${now}" "${CURRENT}"
+  systemctl restart "${SERVICE}"
+  exit 1
 fi
 
 REF="$1"
@@ -85,6 +99,9 @@ git -C "${staging}" checkout --quiet "${REF}"
 sha="$(git -C "${staging}" rev-parse --short=12 HEAD)"
 release="${RELEASES}/${sha}"
 
+# Read the expected version as root from the fresh clone, before any build script runs.
+version="$(read_version "${staging}/package.json")"
+
 if [ -e "${release}" ]; then
   log "Release ${sha} already exists; replacing it"
   [ "$(readlink -f "${release}")" != "$(current_target)" ] || die "release ${sha} is the running release; deploy a different ref or roll back"
@@ -95,10 +112,12 @@ trap - EXIT
 chown -R "${RUN_USER}:${RUN_USER}" "${release}"
 
 log "Building ${sha} (npm ci, build, prune)"
-runuser -u "${RUN_USER}" -- env HOME="${BASE}" npm_config_cache="${BASE}/.npm" \
-  bash -c "cd '${release}' && npm ci && npm run build && npm prune --omit=dev"
+if ! runuser -u "${RUN_USER}" -- env HOME="${BASE}" npm_config_cache="${BASE}/.npm" \
+  bash -c "cd '${release}' && npm ci && npm run build && npm prune --omit=dev"; then
+  rm -rf -- "${release}"
+  die "build of ${sha} failed; release removed, current unchanged"
+fi
 
-version="$(release_version "${release}")"
 previous="$(current_target)"
 
 log "Switching current -> ${release} (version ${version})"
@@ -119,6 +138,10 @@ if [ -n "${previous}" ]; then
   ln -sfn "${previous}" "${CURRENT}"
   systemctl restart "${SERVICE}"
 else
-  log "No previous release to restore"
+  log "No previous release: removing the current link and stopping ${SERVICE}"
+  rm -f -- "${CURRENT}"
+  systemctl stop "${SERVICE}"
 fi
+rm -rf -- "${release}"
+log "Removed failed release ${sha}"
 exit 1
