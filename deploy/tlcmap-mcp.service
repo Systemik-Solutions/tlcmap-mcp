@@ -1,0 +1,21 @@
+[Unit]
+Description=TLCMap MCP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tlcmap-mcp
+EnvironmentFile=/etc/tlcmap-mcp/env
+WorkingDirectory=/opt/tlcmap-mcp/current
+ExecStart=/usr/bin/node --max-old-space-size=1024 /opt/tlcmap-mcp/current/dist/index.js
+Restart=on-failure
+RestartSec=2
+MemoryMax=2G
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
