@@ -1,0 +1,13 @@
+{
+ "type": "FeatureCollection",
+ "metadata": {},
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "id": ""
+   }
+  }
+ ]
+}
