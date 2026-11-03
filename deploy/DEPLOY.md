@@ -84,9 +84,14 @@ This host also serves the staging TLCMap app, so a mistake here can take that si
 order exactly.
 
 ```bash
-sudo apt install -y certbot python3-certbot-apache   # or confirm they are already installed for the other site
+command -v certbot && certbot --version
 sudo apachectl -S
 ```
+
+If `certbot` is found, use it: the other sites already renew with it (on the staging host it is
+the snap). Install it only if it is missing, and then with
+`sudo snap install --classic certbot && sudo ln -s /snap/bin/certbot /usr/bin/certbot`. Never add the
+apt `certbot` package alongside the snap.
 
 Confirm in the `apachectl -S` output that the existing sites use name-based vhosts on `*:80` and
 `*:443`. If they use specific addresses, adapt the new vhosts to match before going on.
@@ -97,6 +102,7 @@ sudo cp /root/tlcmap-mcp-deploy/deploy/test-mcp.tlcmap.org.conf /etc/apache2/sit
 sudo a2ensite test-mcp.tlcmap.org
 sudo apachectl configtest      # must print Syntax OK
 sudo systemctl reload apache2  # only the *:80 vhost is active now
+sudo certbot certonly --apache -d test-mcp.tlcmap.org --dry-run   # Let's Encrypt staging; changes nothing
 sudo certbot certonly --apache -d test-mcp.tlcmap.org
 sudo apachectl configtest
 sudo systemctl reload apache2  # the *:443 vhost is now read
@@ -105,7 +111,8 @@ curl -sI https://test-mcp.tlcmap.org/healthz
 
 The `*:443` vhost is wrapped in `<IfFile>` on the certificate path, so it is ignored until
 `certbot certonly` has created the certificate. Do not use `certbot --apache` (without `certonly`):
-the vhost already carries its own certificate lines. Until the first deploy completes the `curl`
+the vhost already carries its own certificate lines. `--apache` still records Apache as the
+certificate's installer, so `certbot renew` reloads Apache after renewing; no hook is needed. Until the first deploy completes the `curl`
 returns 503 from Apache, which proves TLS and the proxy are in place.
 
 The vhost proxies with `flushpackets=on` and disables compression for `/mcp`. Some 2025-era MCP
@@ -115,10 +122,11 @@ gzip would hold those replies back.
 ### 8. First deploy
 
 ```bash
-sudo /root/tlcmap-mcp-deploy/deploy/deploy.sh main
+sudo /root/tlcmap-mcp-deploy/deploy/deploy.sh v0.1.0    # the release tag
 ```
 
-Expect progress lines ending with `Deployed <sha>`. Then check
+Deploy a release tag, not a branch, so the served version names exactly one commit. Expect progress
+lines ending with `Deployed <sha>`. Then check
 `curl -s https://test-mcp.tlcmap.org/healthz`.
 
 ## Runbook
