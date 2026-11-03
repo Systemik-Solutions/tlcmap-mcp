@@ -14,7 +14,13 @@ export function createServerFactory(deps: {
   scopes: Scope[];
 }): McpServerFactory {
   return () => {
-    const s = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+    // The tool and resource lists never change while the process runs. Without these flags
+    // the SDK advertises listChanged, and a 2026-07-28 client's subscriptions/listen would
+    // hold an SSE stream open with keep-alives; with them the stream ends after its ack.
+    const s = new McpServer(
+      { name: SERVER_NAME, version: SERVER_VERSION },
+      { capabilities: { tools: { listChanged: false }, resources: { listChanged: false } } },
+    );
     registerEnabled(s, [getLayerTool(deps), layerFeaturesResource(deps)], deps.scopes);
     return s;
   };

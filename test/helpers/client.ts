@@ -24,6 +24,12 @@ export interface TestServerOptions {
   routes?: Record<string, FakeRoute>;
   /** Connect the MCP client (default true). A test counting requests can opt out. */
   connect?: boolean;
+  /**
+   * The client's protocol negotiation (default `'legacy'`, the SDK client's own default):
+   * `'legacy'` speaks 2025-11-25 and is answered by the SDK's stateless fallback; `'auto'`
+   * probes with `server/discover` and settles on 2026-07-28 against this server.
+   */
+  negotiation?: 'legacy' | 'auto';
 }
 
 /**
@@ -61,7 +67,10 @@ export async function startTestServer(
   const { port } = http.address() as AddressInfo;
   const url = new URL(`http://127.0.0.1:${port}/mcp`);
 
-  const client = new Client({ name: 'tlcmap-mcp-test', version: '0.0.0' });
+  const client = new Client(
+    { name: 'tlcmap-mcp-test', version: '0.0.0' },
+    { versionNegotiation: { mode: opts.negotiation ?? 'legacy' } },
+  );
   if (opts.connect ?? true) await client.connect(new StreamableHTTPClientTransport(url));
 
   return {

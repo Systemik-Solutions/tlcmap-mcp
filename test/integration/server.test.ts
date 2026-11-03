@@ -26,11 +26,19 @@ type ToolResult = {
 
 let running: TestServer[] = [];
 
-async function start(env?: Record<string, string>, routes?: Record<string, FakeRoute>, connect = true) {
-  const s = await startTestServer(env, { routes, connect });
+async function start(
+  env?: Record<string, string>,
+  routes?: Record<string, FakeRoute>,
+  connect = true,
+  negotiation?: 'legacy' | 'auto',
+) {
+  const s = await startTestServer(env, { routes, connect, negotiation });
   running.push(s);
   return s;
 }
+
+const startIn = (negotiation: 'legacy' | 'auto', env?: Record<string, string>) =>
+  start(env, undefined, true, negotiation);
 
 afterEach(async () => {
   await Promise.all(running.map((s) => s.close()));
@@ -82,7 +90,17 @@ async function health(s: TestServer): Promise<HealthBody> {
   return JSON.parse(r.body) as HealthBody;
 }
 
-describe('tlcmap_get_layer end to end', () => {
+// `legacy` is a 2025-11-25 client, answered by the SDK's stateless SSE fallback; `auto`
+// negotiates 2026-07-28 and is answered with plain JSON.
+describe.each(['legacy', 'auto'] as const)('tlcmap_get_layer end to end (%s negotiation)', (negotiation) => {
+  const start = (env?: Record<string, string>) => startIn(negotiation, env);
+
+  it('negotiates the expected protocol revision', async () => {
+    const s = await start();
+    if (negotiation === 'auto') expect(s.client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+    else expect(s.client.getNegotiatedProtocolVersion()).not.toBe('2026-07-28');
+  });
+
   it.each([
     [206, 'layer-206.json'],
     [1125, 'layer-1125.json'],
@@ -90,8 +108,10 @@ describe('tlcmap_get_layer end to end', () => {
   ])('layer %i returns the summary of its fixture', async (id, file) => {
     const s = await start();
     const expected = summariseLayerFeed(fixtureBytes(file));
+    const fixture = JSON.parse(fixtureBytes(file).toString('utf8')) as { metadata: unknown };
     const r = await call(s, id);
     expect(r.isError).toBeFalsy();
+    expect(r.structuredContent?.metadata).toEqual(fixture.metadata);
     expect(r.structuredContent).toMatchObject({
       layer_id: id,
       metadata: expected.metadata,
@@ -147,6 +167,22 @@ describe('tlcmap_get_layer end to end', () => {
     expect(r.isError).toBe(true);
     expect(errorCode(r)).toBe('UPSTREAM_CONTRACT_VIOLATION');
     expect(r.structuredContent?.error?.details?.api_metadata).toEqual(missingFixture.metadata);
+  });
+});
+
+describe('subscriptions/listen (2026-07-28)', () => {
+  it('advertises no list changes, so a listen stream closes right after its acknowledgement', async () => {
+    const s = await startIn('auto');
+    const sub = await s.client.listen({ toolsListChanged: true, resourcesListChanged: true });
+    const timeout = new Promise<'still open'>((resolve) => setTimeout(() => resolve('still open'), 2000));
+    const outcome = await Promise.race([sub.closed, timeout]);
+    if (outcome === 'still open') await sub.close();
+    expect(outcome).toBe('graceful');
+    expect(sub.honoredFilter).toEqual({});
+    expect(s.client.getServerCapabilities()).toMatchObject({
+      tools: { listChanged: false },
+      resources: { listChanged: false },
+    });
   });
 });
 
