@@ -3,7 +3,7 @@ import type { Logger } from '../log.js';
 import { buildProvenance, type CacheOutcome, type FetchProvenance } from '../provenance.js';
 import { summariseLayerFeed, type LayerSummary } from '../summarise/layer.js';
 import type { ByteLruCache } from '../upstream/cache.js';
-import type { UpstreamClient } from '../upstream/client.js';
+import type { UpstreamClient, UpstreamResponse } from '../upstream/client.js';
 import { SingleFlight, type Limiter } from '../upstream/limiter.js';
 
 export interface LayerEntry {
@@ -41,11 +41,36 @@ export function checkLayerIdentity(summary: LayerSummary, layerId: number): void
   throw new TlcmapError(
     'UPSTREAM_CONTRACT_VIOLATION',
     `The layer feed from TLCMap did not identify itself as layer ${layerId}.`,
-    {
-      expected: `metadata.layer_id to equal ${layerId}`,
-      api_metadata: summary.metadata,
-    },
+    { expected: `metadata.layer_id to equal ${layerId}` },
   );
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The body's `metadata` object, untouched, if the body is JSON and has one. */
+function apiMetadataOf(body: Buffer): Record<string, unknown> | undefined {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body));
+  } catch {
+    return undefined;
+  }
+  return isObj(doc) && isObj(doc.metadata) ? doc.metadata : undefined;
+}
+
+/**
+ * A contract violation found in a 2xx body gains the request, the status and the API's
+ * `metadata` verbatim (spec §7). Any other error passes through unchanged.
+ */
+function withResponseDetails(e: unknown, url: URL, res: UpstreamResponse): unknown {
+  if (!(e instanceof TlcmapError) || e.code !== 'UPSTREAM_CONTRACT_VIOLATION') return e;
+  const details: Record<string, unknown> = { request: `GET ${url.href}`, status: res.status, ...e.details };
+  if (!('api_metadata' in details)) {
+    const metadata = apiMetadataOf(res.body);
+    if (metadata !== undefined) details.api_metadata = metadata;
+  }
+  return new TlcmapError(e.code, e.message, details);
 }
 
 export function createLayerService(deps: {
@@ -90,8 +115,13 @@ export function createLayerService(deps: {
         queue_wait_ms: queueWaitMs,
         duration_ms: res.durationMs,
       });
-      const summary = summariseLayerFeed(res.body);
-      checkLayerIdentity(summary, layerId);
+      let summary: LayerSummary;
+      try {
+        summary = summariseLayerFeed(res.body);
+        checkLayerIdentity(summary, layerId);
+      } catch (e) {
+        throw withResponseDetails(e, url, res);
+      }
       const entry: LayerEntry = {
         layerId,
         body: res.body,

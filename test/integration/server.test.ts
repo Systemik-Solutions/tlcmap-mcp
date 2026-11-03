@@ -166,6 +166,11 @@ describe.each(['legacy', 'auto'] as const)('tlcmap_get_layer end to end (%s nego
     const r = await call(s, 99999999);
     expect(r.isError).toBe(true);
     expect(errorCode(r)).toBe('UPSTREAM_CONTRACT_VIOLATION');
+    expect(r.structuredContent?.error?.details).toMatchObject({
+      request: `GET ${new URL('/layers/99999999/json', s.fake.baseUrl).href}`,
+      status: 200,
+      expected: 'metadata.layer_id to equal 99999999',
+    });
     expect(r.structuredContent?.error?.details?.api_metadata).toEqual(missingFixture.metadata);
   });
 });

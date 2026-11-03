@@ -77,10 +77,8 @@ describe('checkLayerIdentity', () => {
     expect(caught).toBeInstanceOf(TlcmapError);
     const err = caught as TlcmapError;
     expect(err.code).toBe('UPSTREAM_CONTRACT_VIOLATION');
-    expect(err.details).toEqual({
-      expected: 'metadata.layer_id to equal 206',
-      api_metadata: md,
-    });
+    // The layer service adds request, status and api_metadata (see getLayer below).
+    expect(err.details).toEqual({ expected: 'metadata.layer_id to equal 206' });
   });
 });
 
@@ -146,8 +144,62 @@ describe('getLayer', () => {
     expect(caught).toBeInstanceOf(TlcmapError);
     const err = caught as TlcmapError;
     expect(err.code).toBe('UPSTREAM_CONTRACT_VIOLATION');
-    expect(err.details.api_metadata).toEqual(body.metadata);
+    expect(err.details).toEqual({
+      request: 'GET https://tlcmap.org/layers/99999999/json',
+      status: 200,
+      expected: 'metadata.layer_id to equal 99999999',
+      api_metadata: body.metadata,
+    });
     expect(service.peekLayer(99999999)).toBeUndefined();
+  });
+
+  it('a shape violation carries the request, status and API metadata verbatim', async () => {
+    const metadata = { layer_id: 206, name: 'A layer', license: '  CC BY 4.0  ', extra: [1, { a: null }] };
+    const feed = JSON.stringify({
+      type: 'FeatureCollection',
+      metadata,
+      features: [
+        { type: 'Feature', geometry: null, properties: { id: 't1' } },
+        { type: 'Feature', geometry: null, properties: {} },
+      ],
+    });
+    const { service } = setup((url) => respond(url, Buffer.from(feed)));
+    const caught: unknown = await service.getLayer(206).catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(TlcmapError);
+    const err = caught as TlcmapError;
+    expect(err.code).toBe('UPSTREAM_CONTRACT_VIOLATION');
+    expect(err.message).toBe(
+      'The layer feed from TLCMap did not have the expected shape: feature properties.id to be a non-empty string.',
+    );
+    expect(err.details).toEqual({
+      request: 'GET https://tlcmap.org/layers/206/json',
+      status: 200,
+      expected: 'feature properties.id to be a non-empty string',
+      feature_index: 1,
+      api_metadata: metadata,
+    });
+  });
+
+  it('a body that is not JSON carries the request and status but no api_metadata', async () => {
+    const { service } = setup((url) => respond(url, fixture('synthetic/not-json.json')));
+    const caught = (await service.getLayer(206).catch((e: unknown) => e)) as TlcmapError;
+    expect(caught.code).toBe('UPSTREAM_CONTRACT_VIOLATION');
+    expect(caught.details).toEqual({
+      request: 'GET https://tlcmap.org/layers/206/json',
+      status: 200,
+      expected: 'a UTF-8 JSON document',
+    });
+  });
+
+  it('a non-object metadata is not passed on as api_metadata', async () => {
+    const { service } = setup((url) => respond(url, fixture('synthetic/metadata-not-object.json')));
+    const caught = (await service.getLayer(206).catch((e: unknown) => e)) as TlcmapError;
+    expect(caught.code).toBe('UPSTREAM_CONTRACT_VIOLATION');
+    expect(caught.details).toEqual({
+      request: 'GET https://tlcmap.org/layers/206/json',
+      status: 200,
+      expected: 'metadata to be an object',
+    });
   });
 
   it('summarises a real layer with zero features', async () => {
