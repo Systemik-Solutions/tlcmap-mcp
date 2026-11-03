@@ -8,6 +8,17 @@ state between requests.
 The specification is in the `tlcmap-skills` repository:
 [documents/specs/A0-SERVER-SKELETON.md](https://github.com/Systemik-Solutions/tlcmap-skills/blob/main/documents/specs/A0-SERVER-SKELETON.md).
 
+## Staging
+
+The server runs at `https://test-mcp.tlcmap.org`, reading from production tlcmap.org. It offers one
+read-only tool, `tlcmap_get_layer`. To connect Claude Code:
+
+```sh
+claude mcp add --transport http tlcmap https://test-mcp.tlcmap.org/mcp
+```
+
+Health: `https://test-mcp.tlcmap.org/healthz`. Acceptance record: `docs/acceptance/A0.md`.
+
 ## Scripts
 
 | Script | Command | Purpose |
