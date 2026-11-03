@@ -36,33 +36,16 @@ command -v node     # must print /usr/bin/node
 
 The unit file runs `/usr/bin/node`; if the path differs, stop and fix it before continuing.
 
-### 3. Deploy key and repository checkout
+### 3. Repository checkout
 
-Root clones the repository, so root needs read access to it first. Every later step uses the
-checkout at `/root/tlcmap-mcp-deploy`.
-
-```bash
-sudo install -d -m 700 /root/.ssh
-sudo ssh-keygen -t ed25519 -f /root/.ssh/tlcmap-mcp-deploy -N '' -C 'tlcmap-mcp deploy'
-sudo cat /root/.ssh/tlcmap-mcp-deploy.pub
-```
-
-Add the public key as a read-only deploy key on `Systemik-Solutions/tlcmap-mcp` in GitHub, then
-tell SSH to use it:
+The repository is public, so root clones it over HTTPS with no credentials. Every later step uses
+the checkout at `/root/tlcmap-mcp-deploy`.
 
 ```bash
-sudo tee -a /root/.ssh/config >/dev/null <<'CONF'
-Host github.com
-    IdentityFile /root/.ssh/tlcmap-mcp-deploy
-    IdentitiesOnly yes
-CONF
-sudo chmod 600 /root/.ssh/config
-sudo ssh -T git@github.com    # accept the host key; "successfully authenticated" is expected
-sudo git clone git@github.com:Systemik-Solutions/tlcmap-mcp.git /root/tlcmap-mcp-deploy
+sudo git clone https://github.com/Systemik-Solutions/tlcmap-mcp.git /root/tlcmap-mcp-deploy
 ```
 
-If root already uses another key for `github.com`, give this one its own host alias instead and
-adjust `REPO` in `deploy.sh`. To refresh the checkout later: `sudo git -C /root/tlcmap-mcp-deploy pull`.
+To refresh the checkout later: `sudo git -C /root/tlcmap-mcp-deploy pull`.
 
 ### 4. Service user, directories and environment file
 

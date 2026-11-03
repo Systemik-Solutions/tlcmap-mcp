@@ -3,7 +3,7 @@
 # Must run as root. Releases live in /opt/tlcmap-mcp/releases/<sha>; `current` points at one.
 set -euo pipefail
 
-REPO="git@github.com:Systemik-Solutions/tlcmap-mcp.git"
+REPO="https://github.com/Systemik-Solutions/tlcmap-mcp.git"
 BASE="/opt/tlcmap-mcp"
 RELEASES="${BASE}/releases"
 CURRENT="${BASE}/current"
