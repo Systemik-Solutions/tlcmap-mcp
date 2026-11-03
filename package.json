@@ -1,0 +1,37 @@
+{
+  "name": "tlcmap-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:prod": "vitest run --config vitest.prod.config.ts",
+    "capture-fixtures": "tsx scripts/capture-fixtures.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/express": "^2.0.2",
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.1.0"
+  }
+}
