@@ -13,6 +13,20 @@ before requesting a certificate.
 
 ### 2. Node 24
 
+The NodeSource `nodejs` package installs `/usr/bin/node`, replacing any Node already on the host,
+and it conflicts with Ubuntu's own `libnode-dev` and `libnode72` packages. The staging TLCMap app on
+this host may depend on an existing Node, for example to build its assets. Check first:
+
+```bash
+command -v node && node --version
+dpkg -l 'nodejs*' 'libnode*' 2>/dev/null | grep '^ii'
+```
+
+If either command lists anything, stop. Agree an approach with whoever maintains the staging TLCMap
+app before continuing: either confirm that nothing on the host depends on the existing Node, or
+remove `libnode-dev libnode72 nodejs` first. Continue only when neither command lists anything, or
+once that approach is agreed.
+
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt install -y nodejs
@@ -109,7 +123,7 @@ curl -sI https://test-mcp.tlcmap.org/healthz
 The `*:443` vhost is wrapped in `<IfFile>` on the certificate path, so it is ignored until
 `certbot certonly` has created the certificate. Do not use `certbot --apache` (without `certonly`):
 the vhost already carries its own certificate lines. Until the first deploy completes the `curl`
-returns 502 from Apache, which proves TLS and the proxy are in place.
+returns 503 from Apache, which proves TLS and the proxy are in place.
 
 The vhost proxies with `flushpackets=on` and disables compression for `/mcp`. Some 2025-era MCP
 clients receive single-event SSE replies even though the server is in JSON mode, and buffering or
