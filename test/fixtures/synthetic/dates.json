@@ -1,0 +1,56 @@
+{
+ "type": "FeatureCollection",
+ "metadata": {
+  "name": "Dates",
+  "warning": "Verbatim  warning."
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "id": "d1",
+    "datestart": "1826-09-01",
+    "udatestart": 100,
+    "dateend": "1830",
+    "udateend": 500
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "id": "d2",
+    "datestart": "1826-09-02",
+    "udatestart": 100,
+    "dateend": "1900",
+    "udateend": 900
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "id": "d3",
+    "udatestart": 150
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "id": "d4"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "id": "d5",
+    "udatestart": null,
+    "dateend": "tie",
+    "udateend": 900
+   }
+  }
+ ]
+}

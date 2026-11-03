@@ -1,0 +1,28 @@
+{
+ "type": "FeatureCollection",
+ "metadata": {
+  "name": "No geometry"
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "id": "n1"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "id": "n2"
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "n3"
+   }
+  }
+ ]
+}
