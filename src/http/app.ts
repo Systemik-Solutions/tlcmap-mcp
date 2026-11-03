@@ -1,7 +1,7 @@
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, type McpServerFactory } from '@modelcontextprotocol/server';
-import express, { type Express, type RequestHandler } from 'express';
+import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import type { Config, Scope } from '../config.js';
 import type { UpstreamStats } from '../layers/service.js';
@@ -32,6 +32,42 @@ function httpLog(logger: Logger): RequestHandler {
       });
     });
     next();
+  };
+}
+
+/**
+ * The final error handler: a JSON-RPC error body and one `http_error` line. Never the stack,
+ * the request body or a file path, in the response or the log.
+ */
+function errorHandler(logger: Logger): ErrorRequestHandler {
+  return (err: unknown, _req, res, next) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    const type =
+      typeof err === 'object' && err !== null && typeof (err as { type?: unknown }).type === 'string'
+        ? (err as { type: string }).type
+        : undefined;
+    const [status, code, message] =
+      type === 'entity.parse.failed'
+        ? [400, -32700, 'Parse error']
+        : type === 'entity.too.large'
+          ? [413, -32600, 'Request body too large']
+          : [500, -32603, 'Internal error'];
+    // A JSON.parse message quotes the input, so a parse failure is logged with a fixed message.
+    const logged =
+      type === 'entity.parse.failed'
+        ? 'The request body is not valid JSON.'
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    logger.log(status === 500 ? 'error' : 'warn', 'http_error', {
+      type: type ?? null,
+      message: logged,
+      status,
+    });
+    res.status(status).json({ jsonrpc: '2.0', id: null, error: { code, message } });
   };
 }
 
@@ -79,6 +115,8 @@ export function createApp(deps: {
   };
   mcp.get('/mcp', notAllowed);
   mcp.delete('/mcp', notAllowed);
+
+  app.use(errorHandler(logger));
 
   return { app, close: () => handler.close() };
 }

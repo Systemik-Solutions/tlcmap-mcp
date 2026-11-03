@@ -301,6 +301,86 @@ describe('logs', () => {
   });
 });
 
+describe('bad request bodies', () => {
+  const noInternals = (body: string) => {
+    expect(body).not.toMatch(/at \S+ \(/); // a stack frame: `at fn (file:line)`
+    expect(body).not.toContain('node_modules');
+    expect(body).not.toContain('SyntaxError');
+  };
+
+  it('a malformed body is a JSON-RPC parse error, logged as JSON lines', async () => {
+    const s = await start();
+    const stderr = vi.spyOn(console, 'error');
+    const r = await raw(s.url, { method: 'POST', headers: POST_HEADERS, body: '{not json' });
+    expect(r.status).toBe(400);
+    expect(r.headers['content-type']).toMatch(/^application\/json/);
+    expect(JSON.parse(r.body)).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32700, message: 'Parse error' },
+    });
+    noInternals(r.body);
+    await vi.waitFor(() =>
+      expect(s.logs.filter((l) => l['event'] === 'http' && l['status'] === 400)).toHaveLength(1),
+    );
+    const errors = s.logs.filter((l) => l['event'] === 'http_error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ level: 'warn', type: 'entity.parse.failed', status: 400 });
+    expect(Object.keys(errors[0]!).sort()).toEqual(['event', 'level', 'message', 'status', 'ts', 'type']);
+    expect(JSON.stringify(errors[0])).not.toContain('{not json');
+    // The logger's write captures each line through JSON.parse; check every line round-trips.
+    for (const line of s.logs) expect(JSON.parse(JSON.stringify(line))).toEqual(line);
+    expect(stderr).not.toHaveBeenCalled();
+    stderr.mockRestore();
+  });
+
+  it('a parse error never logs the request body', async () => {
+    // V8's JSON.parse message quotes the input: `Unexpected token 's', "{"a": secretvalue}" is not valid JSON`.
+    const s = await start();
+    const r = await raw(s.url, { method: 'POST', headers: POST_HEADERS, body: '{"a": secretvalue}' });
+    expect(r.status).toBe(400);
+    expect(r.body).not.toContain('secretvalue');
+    await vi.waitFor(() => expect(s.logs.filter((l) => l['event'] === 'http_error')).toHaveLength(1));
+    expect(JSON.stringify(s.logs)).not.toContain('secretvalue');
+  });
+
+  it('a body over the JSON limit is 413 with a JSON-RPC error', async () => {
+    const s = await start();
+    const big = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(150_000) } });
+    const r = await raw(s.url, { method: 'POST', headers: POST_HEADERS, body: big });
+    expect(r.status).toBe(413);
+    expect(r.headers['content-type']).toMatch(/^application\/json/);
+    expect(JSON.parse(r.body)).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32600, message: 'Request body too large' },
+    });
+    noInternals(r.body);
+    await vi.waitFor(() =>
+      expect(s.logs.filter((l) => l['event'] === 'http' && l['status'] === 413)).toHaveLength(1),
+    );
+    expect(s.logs.filter((l) => l['event'] === 'http_error')).toMatchObject([
+      { level: 'warn', type: 'entity.too.large', status: 413 },
+    ]);
+  });
+});
+
+describe('proxy', () => {
+  it('a client-supplied X-Forwarded-For entry is not trusted', async () => {
+    const s = await start({}, {}, false);
+    await raw(s.url, {
+      method: 'POST',
+      headers: { ...POST_HEADERS, 'X-Forwarded-For': '203.0.113.5, 198.51.100.7' },
+      body: PING,
+    });
+    await vi.waitFor(() =>
+      expect(s.logs.filter((l) => l['event'] === 'http')).toMatchObject([
+        { method: 'POST', path: '/mcp', ip: '198.51.100.7' },
+      ]),
+    );
+  });
+});
+
 describe('entry point', () => {
   it('a configuration error is one line on stderr and exit code 1', () => {
     const env: Record<string, string | undefined> = { ...process.env };
