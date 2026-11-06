@@ -1,8 +1,30 @@
 # Deploying tlcmap-mcp to staging
 
 The server runs as a systemd service bound to `127.0.0.1:3100`, behind Apache at
-`https://test-mcp.tlcmap.org`, and reads from production `https://tlcmap.org`. The host is Ubuntu
+`https://test-mcp.tlcmap.org`. From 0.2.0 it reads the staging TLCMap application,
+`https://test-ghap.tlcmap.org`; 0.1.0 reads production `https://tlcmap.org`. The host is Ubuntu
 22.04 and also serves the staging TLCMap app.
+
+## Before deploying 0.2.0
+
+Version 0.2.0 reads API v2, which is not yet deployed to test-ghap. Staging keeps serving 0.1.0
+against production's v1 until these are done:
+
+1. Deploy v2 to the staging TLCMap application, `https://test-ghap.tlcmap.org`.
+2. Set `API_V2_RATE_LIMIT` there for the server's load. Paging makes requests add up.
+3. Configure `TrustProxies` for that application's proxy. Otherwise v2 sees every client, the MCP
+   server included, as one address and shares one rate-limit key among them. The server and test-ghap
+   share this host, so the server's requests arrive from the host's own address and the limit applies
+   to it.
+4. Set `TLCMAP_BASE_URL=https://test-ghap.tlcmap.org` in `/etc/tlcmap-mcp/env`.
+5. Run the compatibility check against test-ghap:
+
+   ```bash
+   TLCMAP_BASE_URL=https://test-ghap.tlcmap.org npm run test:compat
+   ```
+
+Then deploy with `deploy.sh` (see "Runbook"). Changing the environment file is what moves staging
+from production to test-ghap; no code changes.
 
 ## One-time setup
 
