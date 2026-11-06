@@ -9,6 +9,8 @@ export interface ByteLruCacheOptions<V> {
   ttlMs: number;
   sizeOf: (v: V) => number;
   now?: () => number;
+  /** Called when an entry leaves for any reason: LRU eviction, TTL expiry, or replacement by set(). */
+  onEvict?: (key: string, value: V) => void;
 }
 
 /**
@@ -23,12 +25,14 @@ export class ByteLruCache<V> {
   private readonly ttlMs: number;
   private readonly sizeOf: (v: V) => number;
   private readonly now: () => number;
+  private readonly onEvict: ((key: string, value: V) => void) | undefined;
 
   constructor(opts: ByteLruCacheOptions<V>) {
     this.maxBytes = opts.maxBytes;
     this.ttlMs = opts.ttlMs;
     this.sizeOf = opts.sizeOf;
     this.now = opts.now ?? Date.now;
+    this.onEvict = opts.onEvict;
   }
 
   get(key: string): V | undefined {
@@ -76,5 +80,6 @@ export class ByteLruCache<V> {
   private remove(key: string, entry: Entry<V>): void {
     this.entries.delete(key);
     this.totalBytes -= entry.size;
+    this.onEvict?.(key, entry.value);
   }
 }

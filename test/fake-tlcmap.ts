@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
+import { JSON_CONTENT_TYPE, MANIFEST, v2Bytes } from './helpers/v2-fixtures.js';
 
 export type FakeRoute = {
   status?: number;
@@ -18,18 +18,12 @@ export interface FakeTlcmap {
 
 const CHUNK = 64 * 1024;
 
-function fixture(name: string): Buffer {
-  return readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
-}
-
 function defaultRoutes(): Record<string, FakeRoute> {
-  const json = { 'Content-Type': 'application/json' };
-  return {
-    '/layers/206/json': { headers: json, body: fixture('layer-206.json') },
-    '/layers/1125/json': { headers: json, body: fixture('layer-1125.json') },
-    '/layers/2749/json': { headers: json, body: fixture('layer-2749-trimmed.json') },
-    '/layers/99999999/json': { headers: json, body: fixture('layer-missing.json') },
-  };
+  const v2: Record<string, FakeRoute> = {};
+  for (const e of MANIFEST) {
+    v2[e.path] = { status: e.status, headers: { 'Content-Type': JSON_CONTENT_TYPE }, body: v2Bytes(e.file) };
+  }
+  return v2;
 }
 
 export async function startFakeTlcmap(routes: Record<string, FakeRoute> = {}): Promise<FakeTlcmap> {
@@ -38,14 +32,15 @@ export async function startFakeTlcmap(routes: Record<string, FakeRoute> = {}): P
   const sockets = new Set<Socket>();
 
   const respond = (req: IncomingMessage, res: ServerResponse): void => {
-    const path = new URL(req.url ?? '/', 'http://fake').pathname;
+    const parsed = new URL(req.url ?? '/', 'http://fake');
+    const path = parsed.pathname;
     requests.push({
       path: req.url ?? path,
       headers: Object.fromEntries(
         Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : (v ?? '')]),
       ),
     });
-    const route = table[path];
+    const route = table[path + parsed.search] ?? table[path];
     const send = (): void => {
       if (!route) {
         res.writeHead(404);

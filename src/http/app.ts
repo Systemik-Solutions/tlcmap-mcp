@@ -4,7 +4,7 @@ import { createMcpHandler, type McpServerFactory } from '@modelcontextprotocol/s
 import express, { type ErrorRequestHandler, type Express, type RequestHandler } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import type { Config, Scope } from '../config.js';
-import type { UpstreamStats } from '../layers/service.js';
+import type { UpstreamStats } from '../pages/service.js';
 import type { Logger } from '../log.js';
 
 export interface HealthBody {

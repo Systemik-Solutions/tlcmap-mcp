@@ -1,24 +1,24 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HealthBody } from '../../src/http/app.js';
-import { summariseLayerFeed } from '../../src/summarise/layer.js';
 import { SERVER_VERSION } from '../../src/version.js';
 import type { FakeRoute } from '../fake-tlcmap.js';
 import { startTestServer, type TestServer } from '../helpers/client.js';
+import { v2Bytes, v2Json } from '../helpers/v2-fixtures.js';
 
-const fixtureBytes = (name: string) => readFileSync(new URL(`../fixtures/${name}`, import.meta.url));
-const missingFixture = JSON.parse(fixtureBytes('layer-missing.json').toString('utf8')) as {
-  metadata: Record<string, unknown>;
-};
+const fixtureBytes = (name: string) => v2Bytes(name);
 const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex');
 
 type ToolResult = {
   isError?: boolean;
+  content?: { type: string; text?: string }[];
   structuredContent?: Record<string, unknown> & {
-    metadata?: Record<string, unknown>;
+    layer?: Record<string, unknown>;
+    page?: { next_cursor: string | null };
+    summary?: { total: number };
+    resource_uri?: string;
     provenance?: Record<string, unknown>;
     error?: { code: string; message: string; details?: Record<string, unknown> };
   };
@@ -37,16 +37,21 @@ async function start(
   return s;
 }
 
-const startIn = (negotiation: 'legacy' | 'auto', env?: Record<string, string>) =>
-  start(env, undefined, true, negotiation);
+const startIn = (negotiation: 'legacy' | 'auto', env?: Record<string, string>, routes?: Record<string, FakeRoute>) =>
+  start(env, routes, true, negotiation);
 
 afterEach(async () => {
   await Promise.all(running.map((s) => s.close()));
   running = [];
 });
 
-const call = async (s: TestServer, layer_id: number) =>
-  (await s.client.callTool({ name: 'tlcmap_get_layer', arguments: { layer_id } })) as unknown as ToolResult;
+const call = async (s: TestServer, layer_id: number, options: Record<string, unknown> = {}) =>
+  (await s.client.callTool({
+    name: 'tlcmap_get_layer',
+    arguments: { layer_id, ...options },
+  })) as unknown as ToolResult;
+
+const FEATURES = '/api/v2/layers/206/features';
 
 const errorCode = (r: ToolResult) => r.structuredContent?.error?.code;
 
@@ -93,7 +98,8 @@ async function health(s: TestServer): Promise<HealthBody> {
 // `legacy` is a 2025-11-25 client, answered by the SDK's stateless SSE fallback; `auto`
 // negotiates 2026-07-28 and is answered with plain JSON.
 describe.each(['legacy', 'auto'] as const)('tlcmap_get_layer end to end (%s negotiation)', (negotiation) => {
-  const start = (env?: Record<string, string>) => startIn(negotiation, env);
+  const start = (env?: Record<string, string>, routes?: Record<string, FakeRoute>) =>
+    startIn(negotiation, env, routes);
 
   it('negotiates the expected protocol revision', async () => {
     const s = await start();
@@ -101,44 +107,63 @@ describe.each(['legacy', 'auto'] as const)('tlcmap_get_layer end to end (%s nego
     else expect(s.client.getNegotiatedProtocolVersion()).not.toBe('2026-07-28');
   });
 
-  it.each([
-    [206, 'layer-206.json'],
-    [1125, 'layer-1125.json'],
-    [2749, 'layer-2749-trimmed.json'],
-  ])('layer %i returns the summary of its fixture', async (id, file) => {
+  it('tools/list names exactly the four tools', async () => {
     const s = await start();
-    const expected = summariseLayerFeed(fixtureBytes(file));
-    const fixture = JSON.parse(fixtureBytes(file).toString('utf8')) as { metadata: unknown };
-    const r = await call(s, id);
+    const names = (await s.client.listTools()).tools.map((t) => t.name).sort();
+    expect(names).toEqual([
+      'tlcmap_get_layer',
+      'tlcmap_get_layer_metadata',
+      'tlcmap_list_layers',
+      'tlcmap_search_places',
+    ]);
+  });
+
+  it('resources/templates/list names exactly the two templates', async () => {
+    const s = await start();
+    const t = (await s.client.listResourceTemplates()).resourceTemplates.map((x) => x.uriTemplate).sort();
+    expect(t).toEqual(['tlcmap://layer/{id}/features/{sha256}', 'tlcmap://search/{sha256}']);
+  });
+
+  it('a places search is one v2 request and its resource is readable', async () => {
+    const s = await start();
+    const r = (await s.client.callTool({
+      name: 'tlcmap_search_places',
+      arguments: { bbox: [150.8, -33.1, 151.4, -32.6], per_page: 20 },
+    })) as { isError?: boolean; structuredContent?: { resource_uri: string; summary: { total: number } } };
     expect(r.isError).toBeFalsy();
-    expect(r.structuredContent?.metadata).toEqual(fixture.metadata);
-    expect(r.structuredContent).toMatchObject({
-      layer_id: id,
-      metadata: expected.metadata,
-      record_count: expected.record_count,
-      extent: expected.extent,
-      date_range: expected.date_range,
-      undated_count: expected.undated_count,
-      ungeolocated_count: expected.ungeolocated_count,
-      resource_uri: `tlcmap://layer/${id}/features`,
-    });
-    expect(s.fake.requests.map((q) => q.path)).toEqual([`/layers/${id}/json`]);
-  });
-
-  it('layer 1125 has 94 records, none undated, and a date range', async () => {
-    const s = await start();
-    const r = await call(s, 1125);
-    expect(r.structuredContent).toMatchObject({ record_count: 94, undated_count: 0 });
-    expect(r.structuredContent?.date_range).not.toBeNull();
-  });
-
-  it('layer 2749 carries its warning verbatim', async () => {
-    const s = await start();
-    const fixture = JSON.parse(fixtureBytes('layer-2749-trimmed.json').toString('utf8')) as {
-      metadata: { warning: string };
+    expect(r.structuredContent?.summary.total).toBe(1318);
+    const read = (await s.client.readResource({ uri: r.structuredContent!.resource_uri })) as unknown as {
+      contents: { text: string }[];
     };
-    const r = await call(s, 2749);
-    expect(r.structuredContent?.metadata?.warning).toBe(fixture.metadata.warning);
+    expect(read.contents[0]?.text).toContain('FeatureCollection');
+  });
+
+  it('layer 206 returns its fixture objects and one v2 request', async () => {
+    const s = await start();
+    const fx = v2Json<{ layer: unknown; summary: unknown }>('layer-206-features.json');
+    const r = await call(s, 206);
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent).toMatchObject({ layer: fx.layer, summary: fx.summary });
+    expect(s.fake.requests.map((q) => q.path)).toEqual([FEATURES]);
+  });
+
+  it('layer 258 carries its licence and warning verbatim', async () => {
+    const s = await start();
+    const fx = v2Json<{ layer: { warning: string; license: string } }>('layer-258-features.json');
+    const r = await call(s, 258);
+    expect(r.structuredContent?.layer?.warning).toBe(fx.layer.warning);
+    expect(r.structuredContent?.layer?.license).toBe(fx.layer.license);
+  });
+
+  it('follows the cursor to a second page', async () => {
+    const s = await start();
+    const one = await call(s, 206, { per_page: 30 });
+    const cursor = one.structuredContent?.page?.next_cursor;
+    expect(typeof cursor).toBe('string');
+    const two = await call(s, 206, { per_page: 30, cursor });
+    expect(two.isError).toBeFalsy();
+    expect(two.structuredContent?.page?.next_cursor).toBeNull();
+    expect(two.structuredContent?.summary?.total).toBe(52);
   });
 
   it('the resource read hashes to the provenance sha256', async () => {
@@ -147,6 +172,7 @@ describe.each(['legacy', 'auto'] as const)('tlcmap_get_layer end to end (%s nego
     const uri = r.structuredContent?.resource_uri as string;
     const read = (await s.client.readResource({ uri })) as unknown as { contents: { text: string }[] };
     expect(sha256(read.contents[0]!.text)).toBe(r.structuredContent?.provenance?.sha256);
+    expect(read.contents[0]!.text).toBe(fixtureBytes('layer-206-features.json').toString('utf8'));
   });
 
   it('a second call is a cache hit with the same fetched_at and no new upstream request', async () => {
@@ -161,17 +187,48 @@ describe.each(['legacy', 'auto'] as const)('tlcmap_get_layer end to end (%s nego
     expect(s.fake.requests).toHaveLength(1);
   });
 
-  it('a missing layer is a contract violation carrying the API metadata', async () => {
-    const s = await start();
-    const r = await call(s, 99999999);
-    expect(r.isError).toBe(true);
-    expect(errorCode(r)).toBe('UPSTREAM_CONTRACT_VIOLATION');
-    expect(r.structuredContent?.error?.details).toMatchObject({
-      request: `GET ${new URL('/layers/99999999/json', s.fake.baseUrl).href}`,
-      status: 200,
-      expected: 'metadata.layer_id to equal 99999999',
+  it('a private layer is LAYER_PRIVATE (403) and a missing one LAYER_NOT_FOUND (404)', async () => {
+    const route = (file: string, status: number): FakeRoute => ({
+      status,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: v2Bytes(file),
     });
-    expect(r.structuredContent?.error?.details?.api_metadata).toEqual(missingFixture.metadata);
+    const s = await start(
+      undefined,
+      {
+        '/api/v2/layers/33/features': route('layer-33.json', 403),
+        '/api/v2/layers/99999999/features': route('layer-99999999.json', 404),
+      },
+    );
+    expect(errorCode(await call(s, 33))).toBe('LAYER_PRIVATE');
+    expect(errorCode(await call(s, 99999999))).toBe('LAYER_NOT_FOUND');
+  });
+
+  it('an out-of-range per_page is INVALID_PARAMETER', async () => {
+    const s = await start();
+    const r = await call(s, 206, { per_page: 6000 });
+    expect(r.isError).toBe(true);
+    expect(errorCode(r)).toBe('INVALID_PARAMETER');
+    expect(r.structuredContent?.error?.details?.['parameter']).toBe('per_page');
+  });
+
+  it("an error's text block carries the whole error, details included, for clients that show only text", async () => {
+    const s = await start();
+    const r = await call(s, 206, { per_page: 6000 });
+    expect(r.content).toEqual([{ type: 'text', text: JSON.stringify(r.structuredContent) }]);
+    expect(JSON.parse(r.content?.[0]?.text ?? '')).toMatchObject({
+      error: { code: 'INVALID_PARAMETER', details: { parameter: 'per_page', status: 400 } },
+    });
+  });
+
+  it('a resource URI is RESOURCE_EXPIRED after a fresh server start', async () => {
+    const first = await start();
+    const r = await call(first, 206);
+    const uri = r.structuredContent?.resource_uri as string;
+    const second = await start();
+    await expect(second.client.readResource({ uri })).rejects.toMatchObject({
+      data: { code: 'RESOURCE_EXPIRED' },
+    });
   });
 });
 
@@ -193,42 +250,42 @@ describe('subscriptions/listen (2026-07-28)', () => {
 
 describe('upstream failures', () => {
   it('a redirect is a contract violation', async () => {
-    const s = await start({}, { '/layers/302/json': { status: 302, headers: { Location: '/elsewhere' } } });
-    expect(errorCode(await call(s, 302))).toBe('UPSTREAM_CONTRACT_VIOLATION');
+    const s = await start({}, { [FEATURES]: { status: 302, headers: { Location: '/elsewhere' } } });
+    expect(errorCode(await call(s, 206))).toBe('UPSTREAM_CONTRACT_VIOLATION');
   });
 
   it('a 503 is upstream unavailable', async () => {
-    const s = await start({}, { '/layers/503/json': { status: 503 } });
-    expect(errorCode(await call(s, 503))).toBe('UPSTREAM_UNAVAILABLE');
+    const s = await start({}, { [FEATURES]: { status: 503 } });
+    expect(errorCode(await call(s, 206))).toBe('UPSTREAM_UNAVAILABLE');
   });
 
   it('a slow response times out as upstream unavailable', async () => {
     const s = await start(
       { UPSTREAM_TIMEOUT_MS: '200' },
-      { '/layers/7001/json': { delayMs: 1000, body: '{}' } },
+      { [FEATURES]: { delayMs: 1000, body: '{}' } },
     );
-    expect(errorCode(await call(s, 7001))).toBe('UPSTREAM_UNAVAILABLE');
+    expect(errorCode(await call(s, 206))).toBe('UPSTREAM_UNAVAILABLE');
   });
 
   it('an oversized response is too large', async () => {
     const s = await start(
       { UPSTREAM_MAX_BYTES: '1024', CACHE_MAX_BYTES: '1024' },
-      { '/layers/7002/json': { streamBytes: 4096 } },
+      { [FEATURES]: { streamBytes: 4096 } },
     );
-    expect(errorCode(await call(s, 7002))).toBe('RESPONSE_TOO_LARGE');
+    expect(errorCode(await call(s, 206))).toBe('RESPONSE_TOO_LARGE');
   });
 
   it('a full upstream queue answers SERVER_BUSY', async () => {
     const slow: FakeRoute = { delayMs: 1000, body: '{}' };
     const s = await start(
       { UPSTREAM_CONCURRENCY: '1', UPSTREAM_QUEUE_MAX: '1' },
-      { '/layers/8001/json': slow, '/layers/8002/json': slow, '/layers/8003/json': slow },
+      { [FEATURES]: slow },
     );
-    const first = call(s, 8001);
+    const first = call(s, 206, { per_page: 1 });
     await vi.waitFor(async () => expect((await health(s)).upstream.in_flight).toBe(1));
-    const second = call(s, 8002);
+    const second = call(s, 206, { per_page: 2 });
     await vi.waitFor(async () => expect((await health(s)).upstream.queued).toBe(1));
-    const third = await call(s, 8003);
+    const third = await call(s, 206, { per_page: 3 });
     expect(errorCode(third)).toBe('SERVER_BUSY');
     expect(errorCode(await first)).not.toBe('SERVER_BUSY');
     expect(errorCode(await second)).not.toBe('SERVER_BUSY');
@@ -287,14 +344,14 @@ describe('HTTP surface', () => {
   it('/healthz reports passive state and never calls TLCMap', async () => {
     const s = await start();
     await call(s, 206);
-    await call(s, 1125);
+    await call(s, 258);
     const before = s.fake.requests.length;
     const h = await health(s);
     expect(Object.keys(h).sort()).toEqual(['cache', 'scopes', 'status', 'upstream', 'uptime_s', 'version']);
     expect(h).toMatchObject({ status: 'ok', version: SERVER_VERSION, scopes: ['read'] });
     expect(Number.isInteger(h.uptime_s)).toBe(true);
     expect(h.cache.entries).toBe(2);
-    expect(h.cache.bytes).toBe(fixtureBytes('layer-206.json').length + fixtureBytes('layer-1125.json').length);
+    expect(h.cache.bytes).toBe(fixtureBytes('layer-206-features.json').length + fixtureBytes('layer-258-features.json').length);
     expect(h.upstream).toMatchObject({ requests_total: before, in_flight: 0, queued: 0, last_error: null });
     expect(h.upstream.last_success_at).toEqual(expect.any(String));
     expect(s.fake.requests).toHaveLength(before);
@@ -309,7 +366,7 @@ describe('logs', () => {
     await call(s, 206);
     expect(events(s, 'tool')).toHaveLength(1);
     expect(events(s, 'upstream')).toHaveLength(1);
-    expect(events(s, 'upstream')[0]).toMatchObject({ url: new URL('/layers/206/json', s.fake.baseUrl).href });
+    expect(events(s, 'upstream')[0]).toMatchObject({ url: new URL(FEATURES, s.fake.baseUrl).href });
     await call(s, 206);
     expect(events(s, 'tool')).toHaveLength(2);
     expect(events(s, 'upstream')).toHaveLength(1);

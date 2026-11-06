@@ -1,6 +1,6 @@
 {
   "name": "tlcmap-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:prod": "vitest run --config vitest.prod.config.ts",
+    "test:compat": "vitest run --config vitest.compat.config.ts",
     "capture-fixtures": "tsx scripts/capture-fixtures.ts",
     "start": "node dist/index.js"
   },

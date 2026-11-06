@@ -1,0 +1,1 @@
+{"error":{"code":"INVALID_GEOMETRY","message":"The geometry in 'polygon' is not valid: Self-intersection[0.5 0.5]","details":{"parameter":"polygon","reason":"Self-intersection[0.5 0.5]"}}}

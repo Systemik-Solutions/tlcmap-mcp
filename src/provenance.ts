@@ -3,30 +3,30 @@ import type { UpstreamResponse } from './upstream/client.js';
 
 export type CacheOutcome = 'miss' | 'hit' | 'shared';
 
-export interface Provenance {
-  request: string;
-  fetched_at: string;
-  cache: CacheOutcome;
-  sha256: string;
-  bytes: number;
-  record_uids: string[];
-  server: string;
-}
+export type Ids = { record_uids: string[] } | { layer_ids: number[] };
 
 /** What is true of the fetch itself; `cache` describes one particular call and is added per call. */
-export type FetchProvenance = Omit<Provenance, 'cache'>;
+export type FetchProvenance = {
+  request: string;
+  fetched_at: string;
+  sha256: string;
+  bytes: number;
+  server: string;
+} & Ids;
 
-export function buildProvenance(
+export type Provenance = FetchProvenance & { cache: CacheOutcome };
+
+export function buildProvenance<I extends Ids>(
   r: UpstreamResponse,
-  recordUids: string[],
+  ids: I,
   server: string,
-): FetchProvenance {
-  return {
+): FetchProvenance & I {
+  const fetchPart = {
     request: `GET ${r.url}`,
     fetched_at: r.fetchedAt.toISOString(),
     sha256: createHash('sha256').update(r.body).digest('hex'),
     bytes: r.body.length,
-    record_uids: recordUids,
     server,
   };
+  return { ...fetchPart, ...ids } as FetchProvenance & I;
 }
