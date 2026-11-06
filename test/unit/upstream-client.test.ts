@@ -63,6 +63,7 @@ describe('upstream client', () => {
     const e = await failure(client().get(new URL('/t', f.baseUrl)));
     expect(e.code).toBe('UPSTREAM_UNAVAILABLE');
     expect(e.details).toMatchObject({ status: 429, retry_after: '30' });
+    expect(e.details.elapsed_ms as number).toBeGreaterThanOrEqual(0);
   });
 
   it('maps 503 to UPSTREAM_UNAVAILABLE', async () => {
@@ -70,6 +71,7 @@ describe('upstream client', () => {
     const e = await failure(client().get(new URL('/s', f.baseUrl)));
     expect(e.code).toBe('UPSTREAM_UNAVAILABLE');
     expect(e.details.status).toBe(503);
+    expect(e.details.elapsed_ms as number).toBeGreaterThanOrEqual(0);
   });
 
   it('times out when the response is slower than timeoutMs', async () => {
@@ -199,12 +201,14 @@ describe('v2 error responses', () => {
     const e = await getErr('/x', { '/x': json(429, body, { 'Retry-After': '30' }) });
     expect(e.code).toBe('UPSTREAM_UNAVAILABLE');
     expect(e.details.retry_after).toBe('30');
+    expect(e.details.elapsed_ms as number).toBeGreaterThanOrEqual(0);
   });
 
   it('maps a 503 to UPSTREAM_UNAVAILABLE', async () => {
     const e = await getErr('/x', { '/x': { status: 503, body: '' } });
     expect(e.code).toBe('UPSTREAM_UNAVAILABLE');
     expect(e.details.status).toBe(503);
+    expect(e.details.elapsed_ms as number).toBeGreaterThanOrEqual(0);
   });
 
   it('treats a 302 as a contract violation with its location', async () => {

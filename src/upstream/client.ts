@@ -66,7 +66,13 @@ const ALLOWED_CODES: Record<number, readonly ErrorCode[]> = {
  * Maps a non-2xx status to a typed error. Redirects, 429 and 5xx are decided by status alone; any
  * other status is decided by status and v2's `error.code` together (spec §9.2).
  */
-function errorForStatus(status: number, request: string, response: Response, body: Buffer): TlcmapError {
+function errorForStatus(
+  status: number,
+  request: string,
+  response: Response,
+  body: Buffer,
+  elapsedMs: number,
+): TlcmapError {
   const details: Record<string, unknown> = { request, status };
   if (status >= 300 && status < 400) {
     details.location = response.headers.get('location');
@@ -78,10 +84,12 @@ function errorForStatus(status: number, request: string, response: Response, bod
   }
   if (status === 429) {
     const retryAfter = response.headers.get('retry-after');
+    details.elapsed_ms = elapsedMs;
     if (retryAfter !== null) details.retry_after = retryAfter;
     return new TlcmapError('UPSTREAM_UNAVAILABLE', 'TLCMap is rate limiting requests (HTTP 429).', details);
   }
   if (status >= 500) {
+    details.elapsed_ms = elapsedMs;
     return new TlcmapError('UPSTREAM_UNAVAILABLE', `TLCMap failed to respond properly (HTTP ${status}).`, details);
   }
   let parsedJson: unknown;
@@ -160,7 +168,7 @@ export function createUpstreamClient(opts: UpstreamClientOptions): UpstreamClien
         }
       }
 
-      if (!ok) throw errorForStatus(status, request, response, body);
+      if (!ok) throw errorForStatus(status, request, response, body, elapsed());
       return {
         url: url.toString(),
         status,
