@@ -27,11 +27,16 @@ export class TlcmapError extends Error {
   }
 }
 
+/**
+ * The text block is the serialised `structuredContent`, as for a success: clients such as Claude
+ * Code pass the agent only the text block of an error, and `details` must reach it.
+ */
 export function toToolErrorResult(e: TlcmapError): CallToolResult {
+  const structuredContent = { error: { code: e.code, message: e.message, details: e.details } };
   return {
     isError: true,
-    structuredContent: { error: { code: e.code, message: e.message, details: e.details } },
-    content: [{ type: 'text', text: `${e.code}: ${e.message}` }],
+    structuredContent,
+    content: [{ type: 'text', text: JSON.stringify(structuredContent) }],
   };
 }
 

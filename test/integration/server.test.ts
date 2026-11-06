@@ -13,6 +13,7 @@ const sha256 = (s: string) => createHash('sha256').update(s, 'utf8').digest('hex
 
 type ToolResult = {
   isError?: boolean;
+  content?: { type: string; text?: string }[];
   structuredContent?: Record<string, unknown> & {
     layer?: Record<string, unknown>;
     page?: { next_cursor: string | null };
@@ -209,6 +210,15 @@ describe.each(['legacy', 'auto'] as const)('tlcmap_get_layer end to end (%s nego
     expect(r.isError).toBe(true);
     expect(errorCode(r)).toBe('INVALID_PARAMETER');
     expect(r.structuredContent?.error?.details?.['parameter']).toBe('per_page');
+  });
+
+  it("an error's text block carries the whole error, details included, for clients that show only text", async () => {
+    const s = await start();
+    const r = await call(s, 206, { per_page: 6000 });
+    expect(r.content).toEqual([{ type: 'text', text: JSON.stringify(r.structuredContent) }]);
+    expect(JSON.parse(r.content?.[0]?.text ?? '')).toMatchObject({
+      error: { code: 'INVALID_PARAMETER', details: { parameter: 'per_page', status: 400 } },
+    });
   });
 
   it('a resource URI is RESOURCE_EXPIRED after a fresh server start', async () => {

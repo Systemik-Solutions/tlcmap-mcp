@@ -11,8 +11,18 @@ describe('errors', () => {
       structuredContent: {
         error: { code: 'LAYER_NOT_FOUND', message: 'No such layer', details: { layer_id: 7 } },
       },
-      content: [{ type: 'text', text: 'LAYER_NOT_FOUND: No such layer' }],
+      content: [
+        {
+          type: 'text',
+          text: '{"error":{"code":"LAYER_NOT_FOUND","message":"No such layer","details":{"layer_id":7}}}',
+        },
+      ],
     });
+  });
+
+  test('the text block is the serialised structuredContent, as for a success', () => {
+    const r = toToolErrorResult(e);
+    expect(r.content).toEqual([{ type: 'text', text: JSON.stringify(r.structuredContent) }]);
   });
 
   test('toProtocolError carries code, message and details in data', () => {
