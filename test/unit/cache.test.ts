@@ -80,4 +80,54 @@ describe('ByteLruCache', () => {
     cache.set('b', 'xx');
     expect(cache.stats()).toEqual({ entries: 1, bytes: 2 });
   });
+
+  describe('onEvict', () => {
+    function withEvents(maxBytes: number, ttlMs = 1000) {
+      let t = 0;
+      const evicted: [string, string][] = [];
+      const cache = new ByteLruCache<string>({
+        maxBytes,
+        ttlMs,
+        sizeOf: (v) => v.length,
+        now: () => t,
+        onEvict: (k, v) => evicted.push([k, v]),
+      });
+      return { cache, evicted, advance: (ms: number) => (t += ms) };
+    }
+
+    it('fires once on LRU eviction', () => {
+      const { cache, evicted } = withEvents(8);
+      cache.set('a', 'xxxx');
+      cache.set('b', 'yyyy');
+      cache.set('c', 'zzzz');
+      expect(evicted).toEqual([['a', 'xxxx']]);
+    });
+
+    it('fires on TTL expiry found by get, and by purgeExpired', () => {
+      const { cache, evicted, advance } = withEvents(100, 1000);
+      cache.set('a', 'xxxx');
+      cache.set('b', 'yyyy');
+      advance(1000);
+      expect(cache.get('a')).toBeUndefined();
+      expect(evicted).toEqual([['a', 'xxxx']]);
+      cache.stats();
+      expect(evicted).toEqual([
+        ['a', 'xxxx'],
+        ['b', 'yyyy'],
+      ]);
+    });
+
+    it('fires when set replaces a key', () => {
+      const { cache, evicted } = withEvents(100);
+      cache.set('a', 'xxxx');
+      cache.set('a', 'yy');
+      expect(evicted).toEqual([['a', 'xxxx']]);
+    });
+
+    it('never fires for a value too large to store', () => {
+      const { cache, evicted } = withEvents(3);
+      cache.set('a', 'xxxx');
+      expect(evicted).toEqual([]);
+    });
+  });
 });

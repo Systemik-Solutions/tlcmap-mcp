@@ -10,7 +10,7 @@ export interface LayerEntry {
   layerId: number;
   body: Buffer;
   summary: LayerSummary;
-  provenance: FetchProvenance;
+  provenance: FetchProvenance & { record_uids: string[] };
 }
 
 export interface UpstreamStats {
@@ -126,7 +126,7 @@ export function createLayerService(deps: {
         layerId,
         body: res.body,
         summary,
-        provenance: buildProvenance(res, summary.record_uids, serverId),
+        provenance: buildProvenance(res, { record_uids: summary.record_uids }, serverId),
       };
       cache.set(url.href, entry);
       return { entry };

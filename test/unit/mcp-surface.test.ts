@@ -32,7 +32,7 @@ function entryFrom(layerId: number, body: Buffer): LayerEntry {
     summary,
     provenance: buildProvenance(
       { url, status: 200, body, fetchedAt: new Date('2026-11-03T00:00:00Z'), durationMs: 5 },
-      summary.record_uids,
+      { record_uids: summary.record_uids },
       SERVER_ID,
     ),
   };
