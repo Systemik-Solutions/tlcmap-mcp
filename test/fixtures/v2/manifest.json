@@ -1,0 +1,97 @@
+[
+  {
+    "file": "layer-206.json",
+    "path": "/api/v2/layers/206",
+    "status": 200
+  },
+  {
+    "file": "layer-206-features.json",
+    "path": "/api/v2/layers/206/features",
+    "status": 200
+  },
+  {
+    "file": "layer-206-features-p1.json",
+    "path": "/api/v2/layers/206/features?per_page=30",
+    "status": 200
+  },
+  {
+    "file": "layer-206-features-p2.json",
+    "path": "/api/v2/layers/206/features?cursor=eyJ2IjoxLCJoIjoiYmJlZmFlOGZhMGU3YWJkZCIsImsiOjI5LCJpIjo0MjMwNCwibiI6MzB9&per_page=30",
+    "status": 200
+  },
+  {
+    "file": "layer-258.json",
+    "path": "/api/v2/layers/258",
+    "status": 200
+  },
+  {
+    "file": "layer-258-features.json",
+    "path": "/api/v2/layers/258/features",
+    "status": 200
+  },
+  {
+    "file": "layer-472.json",
+    "path": "/api/v2/layers/472",
+    "status": 200
+  },
+  {
+    "file": "layer-257-features.json",
+    "path": "/api/v2/layers/257/features",
+    "status": 200
+  },
+  {
+    "file": "layer-33.json",
+    "path": "/api/v2/layers/33",
+    "status": 403
+  },
+  {
+    "file": "layer-99999999.json",
+    "path": "/api/v2/layers/99999999",
+    "status": 404
+  },
+  {
+    "file": "layers-hunter.json",
+    "path": "/api/v2/layers?bbox=150.8,-33.1,151.4,-32.6",
+    "status": 200
+  },
+  {
+    "file": "places-hunter.json",
+    "path": "/api/v2/places?bbox=150.8,-33.1,151.4,-32.6&per_page=20",
+    "status": 200
+  },
+  {
+    "file": "places-hunter-summary.json",
+    "path": "/api/v2/places?bbox=150.8,-33.1,151.4,-32.6&summary_only=true",
+    "status": 200
+  },
+  {
+    "file": "places-layers-33.json",
+    "path": "/api/v2/places?layers=33",
+    "status": 403
+  },
+  {
+    "file": "error-per-page.json",
+    "path": "/api/v2/layers/206/features?per_page=6000",
+    "status": 400
+  },
+  {
+    "file": "error-filter.json",
+    "path": "/api/v2/places?extended_data=Years%20%3E%20many",
+    "status": 400
+  },
+  {
+    "file": "error-geometry.json",
+    "path": "/api/v2/places?polygon=0%200,1%201,0%201,1%200",
+    "status": 400
+  },
+  {
+    "file": "error-cursor.json",
+    "path": "/api/v2/places?bbox=150,-33,151,-32&cursor=eyJ2IjoxLCJoIjoiM2ViNzU4N2MyMmViODUyMSIsImsiOjYxODQ2LCJpIjo2MTg0NiwibiI6MjB9&per_page=20",
+    "status": 400
+  },
+  {
+    "file": "route-not-found.json",
+    "path": "/api/v2/nowhere",
+    "status": 404
+  }
+]
