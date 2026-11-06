@@ -35,6 +35,9 @@ To connect Claude Code to staging:
 claude mcp add --transport http tlcmap https://test-mcp.tlcmap.org/mcp
 ```
 
+Staging serves 0.1.0, which offers only the old `tlcmap_get_layer` (on production's v1), until v2
+reaches test-ghap; the four v2 tools appear once 0.2.0 is deployed there.
+
 Health: `https://test-mcp.tlcmap.org/healthz`. Acceptance record for 0.1.0: `docs/acceptance/A0.md`.
 
 ## Running locally

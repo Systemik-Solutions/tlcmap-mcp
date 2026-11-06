@@ -29,7 +29,7 @@ const inputSchema = z.strictObject({
   name: z.string().optional(),
   match: z.enum(['exact', 'contains', 'fuzzy']).optional(),
   sources: z.array(z.enum(['layers', 'anps', 'ncg', 'text'])).optional(),
-  layers: z.array(z.number().int()).optional(),
+  layers: z.array(z.number().int().positive()).optional(),
   bbox: bboxSchema.optional(),
   polygon: polygonSchema.optional(),
   date_from: z.string().optional(),

@@ -12,7 +12,8 @@ const DESCRIPTION =
   'at least one of its records matches — never by a declared extent — and matching_count gives how ' +
   'many do. has_license and has_warning report whether the field is present, not what it says; read ' +
   'the text itself with tlcmap_get_layer_metadata. total counts every matching layer; follow ' +
-  'page.next_cursor for further pages.';
+  'page.next_cursor for further pages. Licence, rights and warning text, read with ' +
+  'tlcmap_get_layer_metadata, must be shown to the user verbatim, not paraphrased.';
 
 const inputSchema = z.strictObject({
   q: z.string().optional(),

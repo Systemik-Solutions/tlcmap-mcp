@@ -95,6 +95,7 @@ describe('tlcmap_list_layers', () => {
     const t = (await client.listTools()).tools.find((x) => x.name === 'tlcmap_list_layers')!;
     expect(t.description).toMatch(/^Search TLCMap's catalogue of public layers\./);
     expect(t.description).toMatch(/never by a declared extent/);
+    expect(t.description).toMatch(/must be shown to the user verbatim, not paraphrased\.$/);
   });
 
   test.each([
@@ -204,6 +205,7 @@ describe('tlcmap_search_places', () => {
     { match: 'like' },
     { include_undated: 'false' },
     { layers: ['33'] },
+    { layers: [0] },
   ])('rejects %j before any request', async (args) => {
     const r = await places(args);
     expect(r.isError).toBe(true);

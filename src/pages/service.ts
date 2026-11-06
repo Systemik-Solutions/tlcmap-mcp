@@ -66,16 +66,18 @@ export function createPageService(deps: {
   logger: Logger;
 }): PageService {
   const { client, limiter, serverId, logger } = deps;
-  const uriIndex = new Map<string, string>(); // resource URI -> cache key
+  const uriIndex = new Map<string, Set<string>>(); // resource URI -> cache keys whose entry bears it
   const cache = new ByteLruCache<PageEntry>({
     maxBytes: deps.cache.maxBytes,
     ttlMs: deps.cache.ttlMs,
     sizeOf: (e) => e.body.length,
     ...(deps.cache.now ? { now: deps.cache.now } : {}),
     onEvict: (key, entry) => {
-      if (entry.resourceUri !== null && uriIndex.get(entry.resourceUri) === key) {
-        uriIndex.delete(entry.resourceUri);
-      }
+      if (entry.resourceUri === null) return;
+      const keys = uriIndex.get(entry.resourceUri);
+      if (keys === undefined) return;
+      keys.delete(key);
+      if (keys.size === 0) uriIndex.delete(entry.resourceUri);
     },
   });
   const flight = new SingleFlight<{ entry: PageEntry }>();
@@ -103,7 +105,6 @@ export function createPageService(deps: {
           throw e;
         }
       });
-      lastSuccessAt = new Date().toISOString();
       logger.log('info', 'upstream', {
         url: url.href,
         status: res.status,
@@ -117,6 +118,7 @@ export function createPageService(deps: {
       } catch (e) {
         throw withResponseDetails(e, url, res);
       }
+      lastSuccessAt = new Date().toISOString();
       const provenance = buildProvenance(res, parsed.ids, serverId);
       const entry: PageEntry = {
         url: url.href,
@@ -127,7 +129,9 @@ export function createPageService(deps: {
       };
       cache.set(url.href, entry);
       if (entry.resourceUri !== null && cache.get(url.href) === entry) {
-        uriIndex.set(entry.resourceUri, url.href);
+        let keys = uriIndex.get(entry.resourceUri);
+        if (keys === undefined) uriIndex.set(entry.resourceUri, (keys = new Set()));
+        keys.add(url.href);
       }
       return { entry };
     } catch (e) {
@@ -147,10 +151,11 @@ export function createPageService(deps: {
     },
 
     peekResource(uri) {
-      const key = uriIndex.get(uri);
-      if (key === undefined) return undefined;
-      const entry = cache.get(key);
-      return entry !== undefined && entry.resourceUri === uri ? entry : undefined;
+      for (const key of [...(uriIndex.get(uri) ?? [])]) {
+        const entry = cache.get(key);
+        if (entry !== undefined && entry.resourceUri === uri) return entry;
+      }
+      return undefined;
     },
 
     stats() {

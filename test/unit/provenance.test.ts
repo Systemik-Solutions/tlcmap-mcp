@@ -8,7 +8,7 @@ describe('buildProvenance', () => {
   it('describes the fetched bytes', () => {
     const body = v2Bytes('layer-206.json');
     const r: UpstreamResponse = {
-      url: 'https://tlcmap.org/layers/206/json',
+      url: 'https://tlcmap.org/api/v2/layers/206/features',
       status: 200,
       body,
       fetchedAt: new Date('2026-05-01T02:03:04.567Z'),
@@ -16,7 +16,7 @@ describe('buildProvenance', () => {
     };
     const p = buildProvenance(r, { record_uids: ['a', 'b'] }, 'tlcmap-mcp 0.1.0');
     expect(p).toEqual({
-      request: 'GET https://tlcmap.org/layers/206/json',
+      request: 'GET https://tlcmap.org/api/v2/layers/206/features',
       fetched_at: '2026-05-01T02:03:04.567Z',
       sha256: createHash('sha256').update(body).digest('hex'),
       bytes: body.length,

@@ -129,6 +129,55 @@ describe('createPageService', () => {
     expect(service.peekResource(b.entry.resourceUri!)).toBe(b.entry);
   });
 
+  it('keeps a URI shared by two entries when the newer is evicted and the older is still cached', async () => {
+    const body = v2Bytes('layer-206-features-p1.json');
+    const A = '/api/v2/layers/206/features?per_page=1';
+    const B = '/api/v2/layers/206/features?per_page=2';
+    const C = '/api/v2/layers/206/features?per_page=3';
+    const same = { status: 200, body, headers: { 'Content-Type': 'application/json; charset=utf-8' } };
+    const other = { ...same, body: v2Bytes('layer-206-features-p2.json') };
+    const { service } = setup(
+      { [A]: same, [B]: same, [C]: other },
+      { maxBytes: body.length * 2 + 10, ttlMs: 60_000 },
+    );
+    const a = await service.fetch(featuresRequest(A));
+    await service.fetch(featuresRequest(B));
+    await service.fetch(featuresRequest(A)); // B is now the least recently used
+    await service.fetch(featuresRequest(C)); // evicts B, the newer; A stays
+    const again = await service.fetch(featuresRequest(A));
+    expect(again.cache).toBe('hit');
+    expect(service.peekResource(again.entry.resourceUri!)).toBe(a.entry);
+  });
+
+  it('a failed shared fetch rejects both callers alike and caches nothing', async () => {
+    const BAD = '/api/v2/layers/206/features?per_page=7';
+    const { service, calls } = setup({ [BAD]: { status: 503, body: '' } });
+    const rs = await Promise.allSettled([service.fetch(featuresRequest(BAD)), service.fetch(featuresRequest(BAD))]);
+    expect(rs.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    const codes = rs.map((r) => ((r as PromiseRejectedResult).reason as TlcmapError).code);
+    expect(codes).toEqual(['UPSTREAM_UNAVAILABLE', 'UPSTREAM_UNAVAILABLE']);
+    expect(calls()).toBe(1);
+    expect(service.stats().cache.entries).toBe(0);
+    expect(service.peekResource(`tlcmap://features/${'0'.repeat(64)}`)).toBeUndefined();
+    await service.fetch(featuresRequest(BAD)).catch(() => undefined);
+    expect(calls()).toBe(2);
+  });
+
+  it('sets last_success_at only after a 2xx body passes its checks', async () => {
+    const { service } = setup();
+    const bad = await service
+      .fetch({
+        url: new URL(BASE + P1),
+        parse: () => {
+          throw new TlcmapError('UPSTREAM_CONTRACT_VIOLATION', 'bad');
+        },
+      })
+      .catch((e: unknown) => e);
+    expect((bad as TlcmapError).code).toBe('UPSTREAM_CONTRACT_VIOLATION');
+    expect(service.stats().upstream.last_success_at).toBeNull();
+    expect(service.stats().upstream.last_error?.code).toBe('UPSTREAM_CONTRACT_VIOLATION');
+  });
+
   it('drops the URI on TTL expiry', async () => {
     let t = 0;
     const { service } = setup({}, { maxBytes: 50_000_000, ttlMs: 1000, now: () => t });

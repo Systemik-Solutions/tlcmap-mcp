@@ -17,14 +17,15 @@ against production's v1 until these are done:
    share this host, so the server's requests arrive from the host's own address and the limit applies
    to it.
 4. Set `TLCMAP_BASE_URL=https://test-ghap.tlcmap.org` in `/etc/tlcmap-mcp/env`.
-5. Run the compatibility check against test-ghap:
+5. Run the compatibility check against test-ghap, from a development checkout of the repository
+   (a release is `npm prune --omit=dev` and has no vitest), not from `/opt/tlcmap-mcp`:
 
    ```bash
    TLCMAP_BASE_URL=https://test-ghap.tlcmap.org npm run test:compat
    ```
 
 Then deploy with `deploy.sh` (see "Runbook"). Changing the environment file is what moves staging
-from production to test-ghap; no code changes.
+from production to test-ghap; apart from deploying 0.2.0 itself, that is the only change.
 
 ## One-time setup
 
