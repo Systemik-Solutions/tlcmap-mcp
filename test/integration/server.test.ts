@@ -106,10 +106,35 @@ describe.each(['legacy', 'auto'] as const)('tlcmap_get_layer end to end (%s nego
     else expect(s.client.getNegotiatedProtocolVersion()).not.toBe('2026-07-28');
   });
 
-  it('tools/list names exactly the two layer tools', async () => {
+  it('tools/list names exactly the four tools', async () => {
     const s = await start();
     const names = (await s.client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(['tlcmap_get_layer', 'tlcmap_get_layer_metadata']);
+    expect(names).toEqual([
+      'tlcmap_get_layer',
+      'tlcmap_get_layer_metadata',
+      'tlcmap_list_layers',
+      'tlcmap_search_places',
+    ]);
+  });
+
+  it('resources/templates/list names exactly the two templates', async () => {
+    const s = await start();
+    const t = (await s.client.listResourceTemplates()).resourceTemplates.map((x) => x.uriTemplate).sort();
+    expect(t).toEqual(['tlcmap://layer/{id}/features/{sha256}', 'tlcmap://search/{sha256}']);
+  });
+
+  it('a places search is one v2 request and its resource is readable', async () => {
+    const s = await start();
+    const r = (await s.client.callTool({
+      name: 'tlcmap_search_places',
+      arguments: { bbox: [150.8, -33.1, 151.4, -32.6], per_page: 20 },
+    })) as { isError?: boolean; structuredContent?: { resource_uri: string; summary: { total: number } } };
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent?.summary.total).toBe(1318);
+    const read = (await s.client.readResource({ uri: r.structuredContent!.resource_uri })) as unknown as {
+      contents: { text: string }[];
+    };
+    expect(read.contents[0]?.text).toContain('FeatureCollection');
   });
 
   it('layer 206 returns its fixture objects and one v2 request', async () => {

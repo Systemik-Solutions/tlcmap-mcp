@@ -1,6 +1,8 @@
 import { McpServer, type McpServerFactory } from '@modelcontextprotocol/server';
 import type { Scope } from '../config.js';
 import { pageResources } from '../resources/pages.js';
+import { listLayersTool } from '../tools/list-layers.js';
+import { searchPlacesTool } from '../tools/search-places.js';
 import { getLayerMetadataTool } from '../tools/get-layer-metadata.js';
 import { getLayerTool } from '../tools/get-layer.js';
 import type { ToolDeps } from '../tools/common.js';
@@ -17,7 +19,13 @@ export function createServerFactory(deps: ToolDeps & { scopes: Scope[] }): McpSe
       { name: SERVER_NAME, version: SERVER_VERSION },
       { capabilities: { tools: { listChanged: false }, resources: { listChanged: false } } },
     );
-    registerEnabled(s, [getLayerTool(deps), getLayerMetadataTool(deps), ...pageResources(deps)], deps.scopes);
+    registerEnabled(s, [
+        listLayersTool(deps),
+        searchPlacesTool(deps),
+        getLayerTool(deps),
+        getLayerMetadataTool(deps),
+        ...pageResources(deps),
+      ], deps.scopes);
     return s;
   };
 }

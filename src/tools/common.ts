@@ -57,3 +57,9 @@ export async function runTool(
     return toToolErrorResult(e);
   }
 }
+
+/** `[minLon, minLat, maxLon, maxLat]`; minLon above maxLon is a box across the antimeridian. */
+export const bboxSchema = z.tuple([z.number(), z.number(), z.number(), z.number()]);
+
+/** `[[lon, lat], …]`; v2 decides whether the ring is valid. */
+export const polygonSchema = z.array(z.tuple([z.number(), z.number()])).min(3);
