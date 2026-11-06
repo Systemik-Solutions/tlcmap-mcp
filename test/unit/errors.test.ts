@@ -1,6 +1,6 @@
 import { ProtocolError } from '@modelcontextprotocol/server';
 import { describe, expect, test } from 'vitest';
-import { TlcmapError, toProtocolError, toToolErrorResult } from '../../src/errors.js';
+import { TlcmapError, type ErrorCode, toProtocolError, toToolErrorResult } from '../../src/errors.js';
 
 describe('errors', () => {
   const e = new TlcmapError('LAYER_NOT_FOUND', 'No such layer', { layer_id: 7 });
@@ -30,4 +30,13 @@ describe('errors', () => {
   test('details default to an empty object', () => {
     expect(new TlcmapError('SERVER_BUSY', 'busy').details).toEqual({});
   });
+
+  test.each(['INVALID_PARAMETER', 'INVALID_GEOMETRY', 'FILTER_REJECTED'] as ErrorCode[])(
+    '%s gives an isError result and a -32603 protocol error',
+    (code) => {
+      const x = new TlcmapError(code, 'm', { a: 1 });
+      expect(toToolErrorResult(x).isError).toBe(true);
+      expect(toProtocolError(x).code).toBe(-32603);
+    },
+  );
 });

@@ -1,4 +1,5 @@
-import { TlcmapError } from '../errors.js';
+import { TlcmapError, type ErrorCode } from '../errors.js';
+import { errorBodySchema } from '../v2/schemas.js';
 
 export interface UpstreamResponse {
   url: string;
@@ -54,9 +55,16 @@ function reasonOf(e: unknown): string {
   return cause ? `${e.message} (${cause})` : e.message;
 }
 
+/** The v2 error codes that belong with a status; any other pairing is a contract violation. */
+const ALLOWED_CODES: Record<number, readonly ErrorCode[]> = {
+  400: ['INVALID_PARAMETER', 'INVALID_GEOMETRY', 'FILTER_REJECTED'],
+  403: ['LAYER_PRIVATE'],
+  404: ['LAYER_NOT_FOUND'],
+};
+
 /**
- * Maps a non-2xx status to a typed error. The 403 and 404 codes are specific to the layer
- * endpoint (`/layers/{id}/json`), the only endpoint A0 calls; a later endpoint needs its own map.
+ * Maps a non-2xx status to a typed error. Redirects, 429 and 5xx are decided by status alone; any
+ * other status is decided by status and v2's `error.code` together (spec §9.2).
  */
 function errorForStatus(status: number, request: string, response: Response, body: Buffer): TlcmapError {
   const details: Record<string, unknown> = { request, status };
@@ -68,16 +76,6 @@ function errorForStatus(status: number, request: string, response: Response, bod
       details,
     );
   }
-  if (status === 403 || status === 404) {
-    try {
-      details.api_body = JSON.parse(body.toString('utf8')) as unknown;
-    } catch {
-      // Not JSON: no api_body.
-    }
-    return status === 403
-      ? new TlcmapError('LAYER_PRIVATE', 'TLCMap reports that this layer is private (HTTP 403).', details)
-      : new TlcmapError('LAYER_NOT_FOUND', 'TLCMap reports that this layer does not exist (HTTP 404).', details);
-  }
   if (status === 429) {
     const retryAfter = response.headers.get('retry-after');
     if (retryAfter !== null) details.retry_after = retryAfter;
@@ -86,9 +84,23 @@ function errorForStatus(status: number, request: string, response: Response, bod
   if (status >= 500) {
     return new TlcmapError('UPSTREAM_UNAVAILABLE', `TLCMap failed to respond properly (HTTP ${status}).`, details);
   }
+  let parsedJson: unknown;
+  let isJson = false;
+  try {
+    parsedJson = JSON.parse(body.toString('utf8'));
+    isJson = true;
+  } catch {
+    // Not JSON: no api_body.
+  }
+  const parsed = isJson ? errorBodySchema.safeParse(parsedJson) : undefined;
+  const v2Error = parsed?.success ? parsed.data.error : undefined;
+  if (v2Error && ALLOWED_CODES[status]?.includes(v2Error.code as ErrorCode)) {
+    return new TlcmapError(v2Error.code as ErrorCode, v2Error.message, { ...v2Error.details, request, status });
+  }
+  if (isJson) details.api_body = parsedJson;
   return new TlcmapError(
     'UPSTREAM_CONTRACT_VIOLATION',
-    `TLCMap rejected the request (HTTP ${status}), which the server did not expect.`,
+    `TLCMap answered HTTP ${status}${v2Error ? ` ${v2Error.code}` : ''}, which the server did not expect.`,
     details,
   );
 }
