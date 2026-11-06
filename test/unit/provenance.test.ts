@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildProvenance } from '../../src/provenance.js';
 import type { UpstreamResponse } from '../../src/upstream/client.js';
+import { v2Bytes } from '../helpers/v2-fixtures.js';
 
 describe('buildProvenance', () => {
   it('describes the fetched bytes', () => {
-    const body = readFileSync(new URL('../fixtures/layer-206.json', import.meta.url));
+    const body = v2Bytes('layer-206.json');
     const r: UpstreamResponse = {
       url: 'https://tlcmap.org/layers/206/json',
       status: 200,

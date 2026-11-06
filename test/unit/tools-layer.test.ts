@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Logger } from '../../src/log.js';
 import { registerEnabled } from '../../src/mcp/scopes.js';
 import { createPageService } from '../../src/pages/service.js';
+import { layerPageUri, pageResources } from '../../src/resources/pages.js';
+import { getLayerTool } from '../../src/tools/get-layer.js';
 import { getLayerMetadataTool } from '../../src/tools/get-layer-metadata.js';
 import { createUpstreamClient } from '../../src/upstream/client.js';
 import { Limiter } from '../../src/upstream/limiter.js';
@@ -43,7 +45,11 @@ async function start(overrides: Parameters<typeof fixtureFetch>[0] = {}) {
     logger,
   });
   server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerEnabled(server, [getLayerMetadataTool({ pages, baseUrl: new URL(BASE), logger })], ['read']);
+  registerEnabled(server, [
+      getLayerTool({ pages, baseUrl: new URL(BASE), logger }),
+      getLayerMetadataTool({ pages, baseUrl: new URL(BASE), logger }),
+      ...pageResources({ pages, logger }),
+    ], ['read']);
   const [c, s] = InMemoryTransport.createLinkedPair();
   await server.connect(s);
   client = new Client({ name: 'test-client', version: '0.0.0' });
@@ -66,6 +72,7 @@ describe('tlcmap_get_layer_metadata', () => {
     const r = await call({ layer_id: 206 });
     expect(r.isError).toBeFalsy();
     const sc = r.structuredContent!;
+    expect(Object.keys(sc).sort()).toEqual(['layer', 'provenance', 'summary']);
     expect(sc.layer).toEqual(fx.layer);
     expect(sc.summary).toEqual(fx.summary);
     expect(sc.layer.warning).toBe('None');
@@ -139,5 +146,102 @@ describe('tlcmap_get_layer_metadata', () => {
       duration_ms: expect.any(Number),
     });
     expect(tool[1]?.fields).toMatchObject({ outcome: 'LAYER_PRIVATE' });
+  });
+});
+
+const callLayer = async (args: Record<string, unknown>) =>
+  (await client.callTool({ name: 'tlcmap_get_layer', arguments: args })) as unknown as ToolResult;
+
+type Features = {
+  layer: unknown;
+  query: unknown;
+  summary: { total: number };
+  page: { next_cursor: string | null };
+  features: { properties: { id: string } }[];
+};
+const idsOf = (f: Features) => f.features.map((x) => x.properties.id);
+const readUri = async (uri: string) =>
+  ((await client.readResource({ uri })) as unknown as { contents: { text: string }[] }).contents[0]!.text;
+
+describe('tlcmap_get_layer', () => {
+  test('206 with no options returns v2 objects by name and the resource uri', async () => {
+    const fx = v2Json<Features>('layer-206-features.json');
+    const r = await callLayer({ layer_id: 206 });
+    expect(r.isError).toBeFalsy();
+    const sc = r.structuredContent!;
+    expect(Object.keys(sc).sort()).toEqual(['layer', 'page', 'provenance', 'query', 'resource_uri', 'summary']);
+    expect(sc.layer).toEqual(fx.layer);
+    expect(sc.query).toEqual(fx.query);
+    expect(sc.summary).toEqual(fx.summary);
+    expect(sc.page).toEqual(fx.page);
+    expect(sc.summary.total).toBe(52);
+    expect(sc.resource_uri).toBe(layerPageUri(206, sc.provenance.sha256));
+    expect(sc.provenance.record_uids).toEqual(idsOf(fx));
+    expect(sc.provenance.record_uids).toHaveLength(52);
+    expect(requests).toEqual([`${BASE}/api/v2/layers/206/features`]);
+    expect(r.content).toEqual([{ type: 'text', text: JSON.stringify(sc) }]);
+  });
+
+  test('cursor following gives two pages that union to the whole layer', async () => {
+    const one = await callLayer({ layer_id: 206, per_page: 30 });
+    const a = one.structuredContent!;
+    expect(a.provenance.record_uids).toHaveLength(30);
+    expect(typeof a.page.next_cursor).toBe('string');
+    const two = await callLayer({ layer_id: 206, per_page: 30, cursor: a.page.next_cursor });
+    const b = two.structuredContent!;
+    expect(two.isError).toBeFalsy();
+    expect(b.provenance.record_uids).toHaveLength(22);
+    expect(b.page.next_cursor).toBeNull();
+    expect(new Set([...a.provenance.record_uids, ...b.provenance.record_uids]).size).toBe(52);
+    expect(a.summary.total).toBe(52);
+    expect(b.summary.total).toBe(52);
+  });
+
+  test('an empty layer returns its page, an empty record_uids and a readable resource', async () => {
+    const r = await callLayer({ layer_id: 257 });
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent?.summary.total).toBe(0);
+    expect(r.structuredContent?.provenance.record_uids).toEqual([]);
+    expect(await readUri(r.structuredContent!.resource_uri)).toEqual(expect.any(String));
+  });
+
+  test('per_page 6000 is INVALID_PARAMETER with v2 message', async () => {
+    const fx = v2Json<{ error: { message: string } }>('error-per-page.json');
+    const r = await callLayer({ layer_id: 206, per_page: 6000 });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent?.error.code).toBe('INVALID_PARAMETER');
+    expect(r.structuredContent?.error.details?.parameter).toBe('per_page');
+    expect(r.structuredContent?.error.message).toBe(fx.error.message);
+  });
+
+  test('a feature of another layer is an upstream contract violation', async () => {
+    await client.close();
+    await server.close();
+    const fx = v2Json<Features>('layer-206-features.json');
+    (fx.features[0]!.properties as Record<string, unknown>).layer_id = 258;
+    await start({ '/api/v2/layers/206/features': { status: 200, body: JSON.stringify(fx) } });
+    const r = await callLayer({ layer_id: 206 });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent?.error.code).toBe('UPSTREAM_CONTRACT_VIOLATION');
+  });
+
+  test('the resource bytes hash to provenance.sha256', async () => {
+    const r = await callLayer({ layer_id: 206 });
+    const text = await readUri(r.structuredContent!.resource_uri);
+    expect(createHash('sha256').update(text, 'utf8').digest('hex')).toBe(r.structuredContent?.provenance.sha256);
+  });
+
+  test('the input schema carries the v2 enums and rejects unknown keys', async () => {
+    const tool = (await client.listTools()).tools.find((t) => t.name === 'tlcmap_get_layer')!;
+    const p = (tool.inputSchema as { properties: Record<string, Record<string, unknown>> }).properties;
+    expect(p.sort?.enum).toEqual(['order', 'id', 'title', 'start', 'end']);
+    expect(p.direction?.enum).toEqual(['asc', 'desc']);
+    expect(p.nulls?.enum).toEqual(['first', 'last']);
+    expect(p.limit?.type).toBe('integer');
+    expect(p.per_page?.type).toBe('integer');
+    expect(p.cursor?.type).toBe('string');
+    const r = await callLayer({ layer_id: 206, bbox: [1, 2, 3, 4] });
+    expect(r.isError).toBe(true);
+    expect(requests).toEqual([]);
   });
 });

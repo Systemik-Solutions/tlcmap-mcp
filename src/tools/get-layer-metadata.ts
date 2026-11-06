@@ -41,8 +41,9 @@ export function getLayerMetadataTool(deps: ToolDeps): Registration {
                 return { head: doc, ids: { layer_ids: [layer_id] } };
               },
             });
+            const { layer, summary } = entry.head;
             return {
-              structured: { ...entry.head, provenance: { ...entry.provenance, cache } },
+              structured: { layer, summary, provenance: { ...entry.provenance, cache } },
               cache,
             };
           }),

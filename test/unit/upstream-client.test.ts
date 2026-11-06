@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TlcmapError } from '../../src/errors.js';
 import { createUpstreamClient } from '../../src/upstream/client.js';
-import { fixtureFetch, v2Json } from '../helpers/v2-fixtures.js';
+import { fixtureFetch, v2Bytes, v2Json } from '../helpers/v2-fixtures.js';
 import { startFakeTlcmap, type FakeRoute, type FakeTlcmap } from '../fake-tlcmap.js';
 
 const UA = 'tlcmap-mcp/test (+https://example.invalid)';
@@ -33,19 +32,19 @@ async function failure(p: Promise<unknown>): Promise<TlcmapError> {
 describe('upstream client', () => {
   it('returns the body bytes of a 2xx response', async () => {
     const f = await start();
-    const url = new URL('/layers/206/json', f.baseUrl);
+    const url = new URL('/api/v2/layers/206', f.baseUrl);
     const before = Date.now();
     const r = await client().get(url);
     expect(r.status).toBe(200);
     expect(r.url).toBe(url.toString());
-    expect(r.body.equals(readFileSync(new URL('../fixtures/layer-206.json', import.meta.url)))).toBe(true);
+    expect(r.body.equals(v2Bytes('layer-206.json'))).toBe(true);
     expect(r.fetchedAt.getTime()).toBeGreaterThanOrEqual(before);
     expect(r.durationMs).toBeGreaterThanOrEqual(0);
   });
 
   it('sends the configured User-Agent', async () => {
     const f = await start();
-    await client().get(new URL('/layers/206/json', f.baseUrl));
+    await client().get(new URL('/api/v2/layers/206', f.baseUrl));
     expect(f.requests[0]?.headers['user-agent']).toBe(UA);
   });
 
@@ -90,7 +89,7 @@ describe('upstream client', () => {
 
   it('reports a refused connection as UPSTREAM_UNAVAILABLE', async () => {
     const f = await start();
-    const url = new URL('/layers/206/json', f.baseUrl);
+    const url = new URL('/api/v2/layers/206', f.baseUrl);
     await f.close();
     fake = undefined;
     const e = await failure(client().get(url));
